@@ -1,0 +1,740 @@
+################################################################################
+# Marstek Venus A — Home Assistant Automations
+#
+# Import as standalone automations or add to a package.
+# For package use: see README.md section "Installation"
+#
+# Dependencies: marstek_venus_a.yaml must be loaded
+################################################################################
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. SYNC WORK MODE (input_select → modbus)
+#    When the user changes the work mode in the UI,
+#    write the correct value to register 43000.
+# ─────────────────────────────────────────────────────────────────────────────
+- id: marstek_sync_work_mode
+  alias: "Marstek: Sync Work Mode"
+  description: >
+    Writes the selected work mode to the Marstek (register 43000)
+    whenever the input_select changes.
+  trigger:
+    - platform: state
+      entity_id: input_select.marstek_work_mode
+  action:
+    - variables:
+        mode_value: >-
+          {% set m = states('input_select.marstek_work_mode') %}
+          {% if m == 'Anti Feed-In' %} 1
+          {% elif m == 'Trade Mode' %} 2
+          {% else %} 0
+          {% endif %}
+    - action: modbus.write_register
+      data:
+        hub: marstek_venus
+        slave: 1
+        address: 43000
+        value: "{{ mode_value | int }}"
+  mode: single
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. SYNC FORCE MODE (input_select → scripts)
+#    Links the force mode UI selector to the corresponding scripts.
+# ─────────────────────────────────────────────────────────────────────────────
+- id: marstek_sync_force_mode
+  alias: "Marstek: Sync Force Mode"
+  description: >
+    Calls the appropriate script based on the selected force mode.
+  trigger:
+    - platform: state
+      entity_id: input_select.marstek_force_mode
+  action:
+    - choose:
+        - conditions:
+            - condition: state
+              entity_id: input_select.marstek_force_mode
+              state: "Force Charge"
+          sequence:
+            - action: script.marstek_force_charge
+              data:
+                power: "{{ states('input_number.marstek_desired_charge_power') | int }}"
+                target_soc: "{{ states('input_number.marstek_charge_target_soc') | int }}"
+
+        - conditions:
+            - condition: state
+              entity_id: input_select.marstek_force_mode
+              state: "Force Discharge"
+          sequence:
+            - action: script.marstek_force_discharge
+              data:
+                power: "{{ states('input_number.marstek_desired_discharge_power') | int }}"
+
+        - conditions:
+            - condition: state
+              entity_id: input_select.marstek_force_mode
+              state: "Automatic (stop forcing)"
+          sequence:
+            - action: script.marstek_stop_forcing
+  mode: single
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. NIGHT TARIFF CHARGING — use cheap off-peak electricity
+#    Forces charging from 23:00 to 07:00 (adjust times to your tariff)
+#    Requires: energy contract with day/night pricing
+# ─────────────────────────────────────────────────────────────────────────────
+- id: marstek_night_tariff_start_charging
+  alias: "Marstek: Start Night Tariff Charging"
+  description: >
+    Starts force charging at 23:00 if battery is not already full enough.
+    Adjust times to match your cheapest electricity tariff.
+  trigger:
+    - platform: time
+      at: "23:00:00"
+  condition:
+    - condition: numeric_state
+      entity_id: sensor.marstek_battery_soc
+      below: 90               # Skip charging if battery is already > 90%
+  action:
+    - action: script.marstek_force_charge
+      data:
+        power: 2000           # Charge at maximum power overnight
+        target_soc: 95        # Charge to 95%
+  mode: single
+
+- id: marstek_night_tariff_stop_charging
+  alias: "Marstek: Stop Night Tariff Charging"
+  description: Stop force charging at 07:00 (start of day tariff)
+  trigger:
+    - platform: time
+      at: "07:00:00"
+  action:
+    - action: script.marstek_stop_forcing
+  mode: single
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4. PEAK PRICE DISCHARGING — avoid expensive electricity
+#    Discharge during peak hours (e.g. 17:00–21:00)
+# ─────────────────────────────────────────────────────────────────────────────
+- id: marstek_peak_price_start_discharging
+  alias: "Marstek: Start Peak Price Discharging"
+  description: >
+    Forces discharging during peak hours. Stops if battery is too low.
+  trigger:
+    - platform: time
+      at: "17:00:00"
+  condition:
+    - condition: numeric_state
+      entity_id: sensor.marstek_battery_soc
+      above: 30               # Only discharge if battery has enough charge
+  action:
+    - action: script.marstek_force_discharge
+      data:
+        power: 1500
+  mode: single
+
+- id: marstek_peak_price_stop_discharging
+  alias: "Marstek: Stop Peak Price Discharging"
+  trigger:
+    - platform: time
+      at: "21:00:00"
+  action:
+    - action: script.marstek_stop_forcing
+  mode: single
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. SOC PROTECTION — automatic stop based on battery level
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Stop force discharging if battery gets too low
+- id: marstek_stop_at_low_soc
+  alias: "Marstek: Stop Discharging at Low SOC"
+  description: >
+    Automatically stops force discharging when SOC drops below 15%.
+    Prevents deep discharge.
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.marstek_battery_soc
+      below: 15
+  condition:
+    - condition: state
+      entity_id: sensor.marstek_force_mode_raw
+      state: "2"              # Only when force discharging
+  action:
+    - action: script.marstek_stop_forcing
+    - action: notify.persistent_notification
+      data:
+        title: "Marstek: Low SOC"
+        message: >
+          Force discharge stopped. Battery SOC is {{ states('sensor.marstek_battery_soc') }}%
+          (below limit of 15%).
+  mode: single
+
+# Stop force charging if battery is already full
+- id: marstek_stop_at_high_soc
+  alias: "Marstek: Stop Charging at Full Battery"
+  description: >
+    Automatically stops force charging when SOC exceeds 98%.
+    Fallback on top of the built-in target SOC.
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.marstek_battery_soc
+      above: 98
+  condition:
+    - condition: state
+      entity_id: sensor.marstek_force_mode_raw
+      state: "1"              # Only when force charging
+  action:
+    - action: script.marstek_stop_forcing
+  mode: single
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6. ANTI FEED-IN — prevent grid export where regulations require it
+#    Enable/disable anti feed-in mode based on time of day or energy price
+# ─────────────────────────────────────────────────────────────────────────────
+- id: marstek_anti_feedin_enable
+  alias: "Marstek: Enable Anti Feed-In"
+  description: >
+    Enables anti feed-in mode at the configured time.
+    Mode 1 = writes 1 to register 43000.
+  trigger:
+    - platform: time
+      at: "08:00:00"          # Example: no grid export during the day
+  condition:
+    - condition: state
+      entity_id: input_boolean.marstek_anti_feedin_enabled
+      state: "on"             # Only activate if user has enabled this feature
+  action:
+    - action: modbus.write_register
+      data:
+        hub: marstek_venus
+        slave: 1
+        address: 43000
+        value: 1              # Anti Feed-In
+    - action: input_select.select_option
+      target:
+        entity_id: input_select.marstek_work_mode
+      data:
+        option: "Anti Feed-In"
+  mode: single
+
+- id: marstek_anti_feedin_disable
+  alias: "Marstek: Disable Anti Feed-In"
+  trigger:
+    - platform: time
+      at: "20:00:00"          # Return to manual/automatic in the evening
+  action:
+    - action: modbus.write_register
+      data:
+        hub: marstek_venus
+        slave: 1
+        address: 43000
+        value: 0              # Manual
+    - action: input_select.select_option
+      target:
+        entity_id: input_select.marstek_work_mode
+      data:
+        option: "Manual"
+  mode: single
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. BACKUP POWER RESERVE — notify when battery is running low
+# ─────────────────────────────────────────────────────────────────────────────
+- id: marstek_backup_reserve
+  alias: "Marstek: Backup Power Reserve Warning"
+  description: >
+    When battery is nearly empty while discharging, send a notification
+    to consider enabling backup mode manually.
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.marstek_battery_soc
+      below: 20
+  condition:
+    - condition: state
+      entity_id: sensor.marstek_inverter_state_raw
+      state: "3"              # Discharging state
+  action:
+    - action: notify.persistent_notification
+      data:
+        title: "Marstek: Low SOC Warning"
+        message: >
+          Battery SOC is {{ states('sensor.marstek_battery_soc') }}%.
+          Consider intervening manually or enabling backup mode.
+  mode: single
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8. SAFETY SYNC ON HA RESTART
+#    After HA restarts, read the actual state from the Marstek
+#    and sync the UI helpers to match reality.
+# ─────────────────────────────────────────────────────────────────────────────
+- id: marstek_sync_on_restart
+  alias: "Marstek: Sync Status on HA Restart"
+  description: >
+    Reads the current state from the Marstek and synchronises the
+    input_select helpers so the UI reflects actual device state after restart.
+  trigger:
+    - platform: homeassistant
+      event: start
+  action:
+    - delay:
+        seconds: 30           # Wait for modbus connection to be established
+    - action: modbus.reload
+    - delay:
+        seconds: 10
+    # Sync work mode
+    - variables:
+        wm_raw: "{{ states('sensor.marstek_work_mode_raw') | int(0) }}"
+        fm_raw: "{{ states('sensor.marstek_force_mode_raw') | int(0) }}"
+    - action: input_select.select_option
+      target:
+        entity_id: input_select.marstek_work_mode
+      data:
+        option: >-
+          {% if wm_raw == 1 %} Anti Feed-In
+          {% elif wm_raw == 2 %} Trade Mode
+          {% else %} Manual
+          {% endif %}
+    - action: input_select.select_option
+      target:
+        entity_id: input_select.marstek_force_mode
+      data:
+        option: >-
+          {% if fm_raw == 1 %} Force Charge
+          {% elif fm_raw == 2 %} Force Discharge
+          {% else %} Automatic (stop forcing)
+          {% endif %}
+  mode: single
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 9. ALARM NOTIFICATION
+# ─────────────────────────────────────────────────────────────────────────────
+- id: marstek_alarm_notification
+  alias: "Marstek: Alarm Notification"
+  description: Send a notification when an alarm is active.
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.marstek_alarm_status_bits
+      above: 0
+  condition:
+    - condition: numeric_state
+      entity_id: sensor.marstek_alarm_status_bits
+      above: 0
+  action:
+    - action: notify.persistent_notification
+      data:
+        title: "Marstek Alarm!"
+        message: >
+          Active alarms: {{ states('sensor.marstek_alarm_description') }}
+          (Code: {{ states('sensor.marstek_alarm_status_bits') }})
+        notification_id: marstek_alarm
+  mode: single
+
+# Dismiss alarm notification when alarms are resolved
+- id: marstek_alarm_resolved
+  alias: "Marstek: Alarm Resolved"
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.marstek_alarm_status_bits
+      below: 1
+  action:
+    - action: persistent_notification.dismiss
+      data:
+        notification_id: marstek_alarm
+  mode: single
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 10. DYNAMIC ENERGY PRICE CONTROL
+#     Example: link to Nordpool/ENTSO-E price sensor
+#     Requires: nordpool or tibber integration for price data
+#     Adjust entity_id to your energy price sensor
+# ─────────────────────────────────────────────────────────────────────────────
+- id: marstek_cheap_price_charging
+  alias: "Marstek: Charge on Cheap Electricity (dynamic tariff)"
+  description: >
+    Charges the battery when electricity price drops below a threshold.
+    Requires a sensor with current energy price (Nordpool, Tibber, etc.)
+    Adjust entity_id and threshold values to your situation.
+  trigger:
+    # Check every 5 minutes
+    - platform: time_pattern
+      minutes: "/5"
+  condition:
+    # Adjust this entity_id to your energy price sensor:
+    # - Nordpool: sensor.nordpool_kwh_nl_eur_3_10_0
+    # - Tibber:   sensor.tibber_electricity_price_current
+    - condition: numeric_state
+      entity_id: sensor.nordpool_kwh_nl_eur_3_10_0  # ADJUST
+      below: 0.10               # Threshold in €/kWh — ADJUST
+    - condition: numeric_state
+      entity_id: sensor.marstek_battery_soc
+      below: 90                 # Only charge if not already full
+    - condition: time
+      after: "22:00:00"
+      before: "08:00:00"       # Nighttime only
+  action:
+    - action: script.marstek_force_charge
+      data:
+        power: 2000
+        target_soc: 95
+  mode: single
+
+- id: marstek_expensive_price_discharging
+  alias: "Marstek: Discharge on Expensive Electricity (dynamic tariff)"
+  description: >
+    Discharges the battery when electricity price exceeds a threshold.
+  trigger:
+    - platform: time_pattern
+      minutes: "/5"
+  condition:
+    - condition: numeric_state
+      entity_id: sensor.nordpool_kwh_nl_eur_3_10_0  # ADJUST
+      above: 0.30               # Threshold in €/kWh — ADJUST
+    - condition: numeric_state
+      entity_id: sensor.marstek_battery_soc
+      above: 25                 # Only discharge if enough energy available
+    - condition: time
+      after: "06:00:00"
+      before: "23:00:00"       # Daytime only
+  action:
+    - action: script.marstek_force_discharge
+      data:
+        power: 1500
+  mode: single
+
+- id: marstek_stop_dynamic_at_neutral_price
+  alias: "Marstek: Stop Dynamic Control at Neutral Price"
+  description: Stop forcing when price is between the thresholds.
+  trigger:
+    - platform: time_pattern
+      minutes: "/5"
+  condition:
+    - condition: numeric_state
+      entity_id: sensor.nordpool_kwh_nl_eur_3_10_0  # ADJUST
+      above: 0.10               # Above cheap threshold
+    - condition: numeric_state
+      entity_id: sensor.nordpool_kwh_nl_eur_3_10_0  # ADJUST
+      below: 0.30               # Below expensive threshold
+    - condition: or
+      conditions:
+        - condition: state
+          entity_id: sensor.marstek_force_mode_raw
+          state: "1"
+        - condition: state
+          entity_id: sensor.marstek_force_mode_raw
+          state: "2"
+  action:
+    - action: script.marstek_stop_forcing
+  mode: single
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 11. ZERO-GRID CONTROL — keep grid import/export as close to 0W as possible
+#
+#     Dynamically adjusts charge or discharge power based on the current
+#     grid power reading to achieve zero net grid exchange.
+#
+#     Requirements:
+#       - CT clamp installed and sensor.marstek_grid_power is working
+#       - RS485 control must be active before this runs (or enable it here)
+#
+#     How it works:
+#       - Every 10 seconds, read the current grid power
+#       - Positive grid power = exporting to grid → increase charge or reduce discharge
+#       - Negative grid power = importing from grid → increase discharge or reduce charge
+#       - Calculate new setpoint and write to Marstek
+#
+#     Tune these values to your setup:
+#       - zero_grid_deadband: tolerance in W before adjusting (default 50W)
+#       - zero_grid_max_power: maximum charge/discharge power (default 2500W)
+#       - zero_grid_min_power: minimum power step (default 50W)
+# ─────────────────────────────────────────────────────────────────────────────
+- id: marstek_zero_grid_control
+  alias: "Marstek: Zero-Grid Control"
+  description: >
+    Dynamically adjusts battery charge/discharge power every 10 seconds
+    to keep grid import/export as close to 0W as possible.
+    Enable/disable with input_boolean.marstek_zero_grid_enabled.
+  trigger:
+    - platform: time_pattern
+      seconds: "/10"
+  condition:
+    - condition: state
+      entity_id: input_boolean.marstek_zero_grid_enabled
+      state: "on"
+    - condition: not
+      conditions:
+        - condition: state
+          entity_id: sensor.marstek_battery_soc
+          state: "unavailable"
+    - condition: not
+      conditions:
+        - condition: state
+          entity_id: sensor.marstek_grid_power
+          state: "unavailable"
+  variables:
+    # ── Tuning parameters ──────────────────────────────────────────────────
+    deadband: 50              # Tolerance in W — do nothing if within ±50W of zero
+    max_power: 2500           # Maximum charge or discharge power in W
+    min_power: 50             # Minimum power setpoint in W
+    soc_min: 10               # Never discharge below this SOC%
+    soc_max: 98               # Never charge above this SOC%
+    # ── Current readings ──────────────────────────────────────────────────
+    grid_power: "{{ states('sensor.marstek_grid_power') | float(0) | round(0) }}"
+    battery_power: "{{ states('sensor.marstek_battery_power') | float(0) | round(0) }}"
+    soc: "{{ states('sensor.marstek_battery_soc') | float(0) }}"
+    force_mode: "{{ states('sensor.marstek_force_mode_raw') | int(0) }}"
+    # ── Calculated new setpoint ───────────────────────────────────────────
+    # grid_power > 0: exporting → we should charge (absorb excess)
+    # grid_power < 0: importing → we should discharge (cover deficit)
+    # new_setpoint: positive = charge, negative = discharge
+    new_setpoint: >-
+      {% set current = battery_power | float %}
+      {% set correction = grid_power | float %}
+      {% set result = (current + correction) | round(0) | int %}
+      {{ result }}
+  action:
+    - choose:
+        # ── Grid within deadband: do nothing ──────────────────────────────
+        - conditions:
+            - condition: template
+              value_template: >-
+                {{ (grid_power | float) | abs < deadband }}
+          sequence: []
+
+        # ── Need to charge (grid export or not discharging enough) ─────────
+        - conditions:
+            - condition: template
+              value_template: "{{ new_setpoint > 0 }}"
+            - condition: template
+              value_template: "{{ soc < soc_max }}"
+          sequence:
+            - variables:
+                charge_power: >-
+                  {{ [[new_setpoint | int, min_power] | max, max_power] | min }}
+            - action: modbus.write_register
+              data:
+                hub: marstek_venus
+                slave: 1
+                address: 42000
+                value: 21930        # Ensure RS485 control is active
+            - delay:
+                milliseconds: 50
+            - action: modbus.write_register
+              data:
+                hub: marstek_venus
+                slave: 1
+                address: 42020
+                value: "{{ charge_power }}"
+            - action: modbus.write_register
+              data:
+                hub: marstek_venus
+                slave: 1
+                address: 42010
+                value: 1            # Force charge
+
+        # ── Need to discharge (grid import or not charging enough) ─────────
+        - conditions:
+            - condition: template
+              value_template: "{{ new_setpoint < 0 }}"
+            - condition: template
+              value_template: "{{ soc > soc_min }}"
+          sequence:
+            - variables:
+                discharge_power: >-
+                  {{ [[(-new_setpoint) | int, min_power] | max, max_power] | min }}
+            - action: modbus.write_register
+              data:
+                hub: marstek_venus
+                slave: 1
+                address: 42000
+                value: 21930        # Ensure RS485 control is active
+            - delay:
+                milliseconds: 50
+            - action: modbus.write_register
+              data:
+                hub: marstek_venus
+                slave: 1
+                address: 42021
+                value: "{{ discharge_power }}"
+            - action: modbus.write_register
+              data:
+                hub: marstek_venus
+                slave: 1
+                address: 42010
+                value: 2            # Force discharge
+
+        # ── SOC limits reached: stop forcing ──────────────────────────────
+        - conditions:
+            - condition: template
+              value_template: >-
+                {{ (new_setpoint > 0 and soc >= soc_max) or
+                   (new_setpoint < 0 and soc <= soc_min) }}
+          sequence:
+            - action: modbus.write_register
+              data:
+                hub: marstek_venus
+                slave: 1
+                address: 42010
+                value: 0            # Stop forcing
+  mode: single
+
+# Enable zero-grid control
+- id: marstek_zero_grid_enable
+  alias: "Marstek: Enable Zero-Grid Control"
+  description: >
+    Activates zero-grid control. Ensure CT sensor is working correctly.
+  trigger:
+    - platform: state
+      entity_id: input_boolean.marstek_zero_grid_enabled
+      to: "on"
+  action:
+    - action: modbus.write_register
+      data:
+        hub: marstek_venus
+        slave: 1
+        address: 42000
+        value: 21930            # Enable RS485 control
+    - action: notify.persistent_notification
+      data:
+        title: "Marstek: Zero-Grid Active"
+        message: >
+          Zero-grid control is now active. Battery will adjust every 10s
+          to keep grid power near 0W.
+        notification_id: marstek_zero_grid
+  mode: single
+
+# Disable zero-grid control — return to automatic
+- id: marstek_zero_grid_disable
+  alias: "Marstek: Disable Zero-Grid Control"
+  description: >
+    Deactivates zero-grid control and returns battery to automatic mode.
+  trigger:
+    - platform: state
+      entity_id: input_boolean.marstek_zero_grid_enabled
+      to: "off"
+  action:
+    - action: script.marstek_stop_forcing
+    - action: persistent_notification.dismiss
+      data:
+        notification_id: marstek_zero_grid
+  mode: single
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 12. EXTERNAL SETPOINT PASSTHROUGH
+#
+#     Passes the setpoint from sensor.battery_controller_battery_setpoint
+#     directly to the Marstek. The external integration handles deadband,
+#     SOC limits and power limits — this automation is a pure passthrough.
+#
+#       Positive value → charge at that power (W)
+#       Negative value → discharge at that power (W)
+#       Zero           → stop forcing
+# ─────────────────────────────────────────────────────────────────────────────
+- id: marstek_external_setpoint
+  alias: "Marstek: Apply External Setpoint"
+  description: >
+    Passes sensor.battery_controller_battery_setpoint directly to the Marstek.
+    Positive = charge, negative = discharge, 0 = stop.
+  trigger:
+    - platform: state
+      entity_id: sensor.battery_controller_battery_setpoint
+  condition:
+    - condition: not
+      conditions:
+        - condition: state
+          entity_id: sensor.battery_controller_battery_setpoint
+          state: "unavailable"
+    - condition: not
+      conditions:
+        - condition: state
+          entity_id: sensor.battery_controller_battery_setpoint
+          state: "unknown"
+  variables:
+    setpoint: "{{ -(states('sensor.battery_controller_battery_setpoint') | float(0)) | round(0) | int }}"
+  action:
+    - choose:
+        # ── Positive: charge ───────────────────────────────────────────────
+        - conditions:
+            - condition: template
+              value_template: "{{ setpoint > 0 }}"
+          sequence:
+            - action: modbus.write_register
+              data:
+                hub: marstek_venus
+                slave: 1
+                address: 42000
+                value: 21930        # Enable RS485 control
+            - delay:
+                milliseconds: 50
+            - action: modbus.write_register
+              data:
+                hub: marstek_venus
+                slave: 1
+                address: 42020
+                value: "{{ setpoint }}"
+            - action: modbus.write_register
+              data:
+                hub: marstek_venus
+                slave: 1
+                address: 42010
+                value: 1            # Force charge
+
+        # ── Negative: discharge ────────────────────────────────────────────
+        - conditions:
+            - condition: template
+              value_template: "{{ setpoint < 0 }}"
+          sequence:
+            - action: modbus.write_register
+              data:
+                hub: marstek_venus
+                slave: 1
+                address: 42000
+                value: 21930        # Enable RS485 control
+            - delay:
+                milliseconds: 50
+            - action: modbus.write_register
+              data:
+                hub: marstek_venus
+                slave: 1
+                address: 42021
+                value: "{{ setpoint | abs }}"
+            - action: modbus.write_register
+              data:
+                hub: marstek_venus
+                slave: 1
+                address: 42010
+                value: 2            # Force discharge
+
+      # ── Zero: stop forcing ─────────────────────────────────────────────
+      default:
+        - action: modbus.write_register
+          data:
+            hub: marstek_venus
+            slave: 1
+            address: 42010
+            value: 0                # Stop forcing
+  mode: queued
+  max: 2
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# REQUIRED INPUT BOOLEAN HELPERS
+# Add these to marstek_venus_a.yaml or a separate input_boolean.yaml:
+#
+# input_boolean:
+#   marstek_anti_feedin_enabled:
+#     name: "Marstek Anti Feed-In Enable"
+#     icon: mdi:transmission-tower-off
+#
+#   marstek_zero_grid_enabled:
+#     name: "Marstek Zero-Grid Control"
+#     icon: mdi:home-lightning-bolt
+# ─────────────────────────────────────────────────────────────────────────────

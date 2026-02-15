@@ -1,0 +1,1324 @@
+################################################################################
+# Marstek Venus A — Home Assistant Modbus Package
+# Firmware: >= 147 (V1/V2 hardware, RS485-to-TCP adapter required)
+#
+# Hardware: Elfin EW11 / PUSR DR134 / Waveshare RS485-to-ETH
+#   RS485 adapter settings: 115200 baud, 8N1, Slave ID 1
+#   RS485 pinout Marstek connector:
+#     Pin 1 = A (+) yellow | Pin 2 = B (-) red | Pin 3 = GND black
+#
+# Installation:
+#   1. Place this file in config/packages/
+#   2. Add to configuration.yaml:
+#        homeassistant:
+#          packages:
+#            marstek: !include packages/marstek_venus_a.yaml
+#   3. Set marstek_host in secrets.yaml:
+#        marstek_host: "192.168.x.x"
+#   4. Restart Home Assistant
+#
+# For control/automation: see scripts at the bottom of this file
+################################################################################
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MODBUS HUB + ENTITIES
+# ─────────────────────────────────────────────────────────────────────────────
+modbus:
+  - name: marstek_venus
+    type: tcp
+    host: 192.168.2.19   # or hardcode: "192.168.1.100"
+    port: 502
+    timeout: 5
+    message_wait_milliseconds: 50  # Minimum 35ms, 50ms for reliability
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # SENSORS (read-only, FC03 holding registers)
+    # ─────────────────────────────────────────────────────────────────────────
+    sensors:
+
+      # ── Battery measurements ───────────────────────────────────────────────
+
+      - name: "Marstek Battery Voltage"
+        unique_id: marstek_battery_voltage
+        slave: 1
+        address: 32100
+        input_type: holding
+        data_type: uint16
+        scale: 0.01
+        precision: 2
+        unit_of_measurement: "V"
+        device_class: voltage
+        state_class: measurement
+        scan_interval: 30
+
+      - name: "Marstek Battery Current"
+        unique_id: marstek_battery_current
+        slave: 1
+        address: 32101
+        input_type: holding
+        data_type: int16      # Positive = charging, negative = discharging
+        scale: 0.01
+        precision: 2
+        unit_of_measurement: "A"
+        device_class: current
+        state_class: measurement
+        scan_interval: 10
+
+      - name: "Marstek Battery Power"
+        unique_id: marstek_battery_power
+        slave: 1
+        address: 32102
+        input_type: holding
+        data_type: int32      # 2 registers, positive = charging, negative = discharging
+        scale: 1
+        precision: 0
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        scan_interval: 10
+
+      - name: "Marstek Battery SOC"
+        unique_id: marstek_battery_soc
+        slave: 1
+        address: 32104
+        input_type: holding
+        data_type: uint16
+        scale: 1
+        precision: 0
+        unit_of_measurement: "%"
+        device_class: battery
+        state_class: measurement
+        scan_interval: 30
+
+      - name: "Marstek Battery Capacity"
+        unique_id: marstek_battery_capacity
+        slave: 1
+        address: 32105
+        input_type: holding
+        data_type: uint16
+        scale: 0.001
+        precision: 3
+        unit_of_measurement: "kWh"
+        device_class: energy_storage
+        scan_interval: 3600         # Static, rarely changes
+
+      # ── AC Grid measurements ───────────────────────────────────────────────
+
+#      - name: "Marstek Grid Voltage"
+#        unique_id: marstek_grid_voltage
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 32200
+#        input_type: holding
+#        data_type: uint16
+#        scale: 0.1
+#        precision: 1
+#        unit_of_measurement: "V"
+#        device_class: voltage
+#        state_class: measurement
+#        scan_interval: 30
+#
+#      - name: "Marstek Grid Current"
+#        unique_id: marstek_grid_current
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 32201
+#        input_type: holding
+#        data_type: int16      # Positive = export to grid, negative = import from grid
+#        scale: 0.01
+#        precision: 2
+#        unit_of_measurement: "A"
+#        device_class: current
+#        state_class: measurement
+#        scan_interval: 10
+
+      - name: "Marstek Grid Power"
+        unique_id: marstek_grid_power
+        slave: 1
+        address: 32202
+        input_type: holding
+        data_type: int32      # Positive = export (discharging), negative = import (charging)
+        scale: 1
+        precision: 0
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        scan_interval: 10
+
+#      - name: "Marstek Grid Frequency"
+#        unique_id: marstek_grid_frequency
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 32204
+#        input_type: holding
+#        data_type: int16
+#        scale: 0.01
+#        precision: 2
+#        unit_of_measurement: "Hz"
+#        device_class: frequency
+#        state_class: measurement
+#        scan_interval: 60
+
+      # ── Off-grid output ────────────────────────────────────────────────────
+
+#      - name: "Marstek Off-Grid Voltage"
+#        unique_id: marstek_offgrid_voltage
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 32300
+#        input_type: holding
+#        data_type: uint16
+#        scale: 0.1
+#        precision: 1
+#        unit_of_measurement: "V"
+#        device_class: voltage
+#        state_class: measurement
+#        scan_interval: 30
+#
+#      - name: "Marstek Off-Grid Current"
+#        unique_id: marstek_offgrid_current
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 32301
+#        input_type: holding
+#        data_type: uint16
+#        scale: 0.01
+#        precision: 2
+#        unit_of_measurement: "A"
+#        device_class: current
+#        state_class: measurement
+#        scan_interval: 10
+#
+#      - name: "Marstek Off-Grid Power"
+#        unique_id: marstek_offgrid_power
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 32302
+#        input_type: holding
+#        data_type: int32
+#        scale: 1
+#        precision: 0
+#        unit_of_measurement: "W"
+#        device_class: power
+#        state_class: measurement
+#        scan_interval: 10
+
+      # ── Energy counters ────────────────────────────────────────────────────
+
+      - name: "Marstek Total Energy Charged"
+        unique_id: marstek_total_charged
+        slave: 1
+        address: 33000
+        input_type: holding
+        data_type: uint32
+        scale: 0.01
+        precision: 2
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: total_increasing
+        scan_interval: 60
+
+      - name: "Marstek Total Energy Discharged"
+        unique_id: marstek_total_discharged
+        slave: 1
+        address: 33002
+        input_type: holding
+        data_type: int32
+        scale: 0.01
+        precision: 2
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: total_increasing
+        scan_interval: 60
+
+#      - name: "Marstek Daily Energy Charged"
+#        unique_id: marstek_daily_charged
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 33004
+#        input_type: holding
+#        data_type: uint32
+#        scale: 0.01
+#        precision: 2
+#        unit_of_measurement: "kWh"
+#        device_class: energy
+#        state_class: total_increasing
+#        scan_interval: 60
+#
+#      - name: "Marstek Daily Energy Discharged"
+#        unique_id: marstek_daily_discharged
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 33006
+#        input_type: holding
+#        data_type: int32
+#        scale: 0.01
+#        precision: 2
+#        unit_of_measurement: "kWh"
+#        device_class: energy
+#        state_class: total_increasing
+#        scan_interval: 60
+#
+#      - name: "Marstek Monthly Energy Charged"
+#        unique_id: marstek_monthly_charged
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 33008
+#        input_type: holding
+#        data_type: uint32
+#        scale: 0.01
+#        precision: 2
+#        unit_of_measurement: "kWh"
+#        device_class: energy
+#        state_class: total_increasing
+#        scan_interval: 300
+#
+#      - name: "Marstek Monthly Energy Discharged"
+#        unique_id: marstek_monthly_discharged
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 33010
+#        input_type: holding
+#        data_type: int32
+#        scale: 0.01
+#        precision: 2
+#        unit_of_measurement: "kWh"
+#        device_class: energy
+#        state_class: total_increasing
+#        scan_interval: 300
+
+      # ── Temperatures ───────────────────────────────────────────────────────
+
+      - name: "Marstek Battery Temperature"
+        unique_id: marstek_battery_temp
+        slave: 1
+        address: 35000
+        input_type: holding
+        data_type: int16
+        scale: 0.1
+        precision: 1
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state_class: measurement
+        scan_interval: 60
+
+#      - name: "Marstek MOS1 Temperature"
+#        unique_id: marstek_mos1_temp
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 35001
+#        input_type: holding
+#        data_type: int16
+#        scale: 0.1
+#        precision: 1
+#        unit_of_measurement: "°C"
+#        device_class: temperature
+#        state_class: measurement
+#        scan_interval: 60
+#
+#      - name: "Marstek MOS2 Temperature"
+#        unique_id: marstek_mos2_temp
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 35002
+#        input_type: holding
+#        data_type: int16
+#        scale: 0.1
+#        precision: 1
+#        unit_of_measurement: "°C"
+#        device_class: temperature
+#        state_class: measurement
+#        scan_interval: 60
+#
+#      - name: "Marstek Max Cell Temperature"
+#        unique_id: marstek_max_cell_temp
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 35010
+#        input_type: holding
+#        data_type: int16
+#        scale: 1            # V1/V2 = scale 1°C; for V3 hardware: scale 0.1
+#        precision: 0
+#        unit_of_measurement: "°C"
+#        device_class: temperature
+#        state_class: measurement
+#        scan_interval: 60
+#
+#      - name: "Marstek Min Cell Temperature"
+#        unique_id: marstek_min_cell_temp
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 35011
+#        input_type: holding
+#        data_type: int16
+#        scale: 1            # V1/V2 = scale 1°C; for V3 hardware: scale 0.1
+#        precision: 0
+#        unit_of_measurement: "°C"
+#        device_class: temperature
+#        state_class: measurement
+#        scan_interval: 60
+#
+#      - name: "Marstek BMS Max Charge Current"
+#        unique_id: marstek_bms_max_charge_current
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 35111
+#        input_type: holding
+#        data_type: uint16
+#        scale: 0.1
+#        precision: 1
+#        unit_of_measurement: "A"
+#        device_class: current
+#        state_class: measurement
+#        scan_interval: 60
+#
+#      - name: "Marstek BMS Max Discharge Current"
+#        unique_id: marstek_bms_max_discharge_current
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 35112
+#        input_type: holding
+#        data_type: uint16
+#        scale: 0.1
+#        precision: 1
+#        unit_of_measurement: "A"
+#        device_class: current
+#        state_class: measurement
+#        scan_interval: 60
+
+      # ── Status & alarms ────────────────────────────────────────────────────
+
+#      - name: "Marstek Inverter State (raw)"
+#        unique_id: marstek_inverter_state_raw
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 35100
+#        input_type: holding
+#        data_type: uint16
+#        scan_interval: 10
+#        # Values: 0=Sleep, 1=Standby, 2=Charging, 3=Discharging,
+#        #         4=Backup Mode, 5=OTA Upgrade, 6=Bypass
+
+      - name: "Marstek Alarm Status (bits)"
+        unique_id: marstek_alarm_bits
+        slave: 1
+        address: 36000
+        input_type: holding
+        data_type: uint16
+        scan_interval: 30
+        # Bit 0=PLL Restart, 1=Overheating, 2=Low Temp, 3=Fan Fault,
+        # 4=Low SOC, 5=Output Overcurrent, 6=Line Sequence,
+        # 7=WiFi Abnormal, 8=BLE Abnormal, 9=Network Abnormal, 10=CT Abnormal
+
+#      - name: "Marstek Fault Status 1 (bits)"
+#        unique_id: marstek_fault_bits_1
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 36100
+#        input_type: holding
+#        data_type: uint16
+#        scan_interval: 30
+#
+#      - name: "Marstek Fault Status 2 (bits)"
+#        unique_id: marstek_fault_bits_2
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 36101
+#        input_type: holding
+#        data_type: uint16
+#        scan_interval: 30
+#
+#      - name: "Marstek Fault Status 3 (bits)"
+#        unique_id: marstek_fault_bits_3
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 36102
+#        input_type: holding
+#        data_type: uint16
+#        scan_interval: 30
+#
+#      - name: "Marstek Fault Status 4 (bits)"
+#        unique_id: marstek_fault_bits_4
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 36103
+#        input_type: holding
+#        data_type: uint16
+#        scan_interval: 30
+
+      # ── Cell voltages (16 cells) ───────────────────────────────────────────
+
+#      - name: "Marstek Cell 1 Voltage"
+#        unique_id: marstek_cell_01_voltage
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 34018
+#        input_type: holding
+#        data_type: int16
+#        scale: 0.001
+#        precision: 3
+#        unit_of_measurement: "V"
+#        device_class: voltage
+#        state_class: measurement
+#        scan_interval: 120
+#
+#      - name: "Marstek Cell 2 Voltage"
+#        unique_id: marstek_cell_02_voltage
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 34019
+#        input_type: holding
+#        data_type: int16
+#        scale: 0.001
+#        precision: 3
+#        unit_of_measurement: "V"
+#        device_class: voltage
+#        state_class: measurement
+#        scan_interval: 120
+#
+#      - name: "Marstek Cell 3 Voltage"
+#        unique_id: marstek_cell_03_voltage
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 34020
+#        input_type: holding
+#        data_type: int16
+#        scale: 0.001
+#        precision: 3
+#        unit_of_measurement: "V"
+#        device_class: voltage
+#        state_class: measurement
+#        scan_interval: 120
+#
+#      - name: "Marstek Cell 4 Voltage"
+#        unique_id: marstek_cell_04_voltage
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 34021
+#        input_type: holding
+#        data_type: int16
+#        scale: 0.001
+#        precision: 3
+#        unit_of_measurement: "V"
+#        device_class: voltage
+#        state_class: measurement
+#        scan_interval: 120
+#
+#      - name: "Marstek Cell 5 Voltage"
+#        unique_id: marstek_cell_05_voltage
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 34022
+#        input_type: holding
+#        data_type: int16
+#        scale: 0.001
+#        precision: 3
+#        unit_of_measurement: "V"
+#        device_class: voltage
+#        state_class: measurement
+#        scan_interval: 120
+#
+#      - name: "Marstek Cell 6 Voltage"
+#        unique_id: marstek_cell_06_voltage
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 34023
+#        input_type: holding
+#        data_type: int16
+#        scale: 0.001
+#        precision: 3
+#        unit_of_measurement: "V"
+#        device_class: voltage
+#        state_class: measurement
+#        scan_interval: 120
+#
+#      - name: "Marstek Cell 7 Voltage"
+#        unique_id: marstek_cell_07_voltage
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 34024
+#        input_type: holding
+#        data_type: int16
+#        scale: 0.001
+#        precision: 3
+#        unit_of_measurement: "V"
+#        device_class: voltage
+#        state_class: measurement
+#        scan_interval: 120
+#
+#      - name: "Marstek Cell 8 Voltage"
+#        unique_id: marstek_cell_08_voltage
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 34025
+#        input_type: holding
+#        data_type: int16
+#        scale: 0.001
+#        precision: 3
+#        unit_of_measurement: "V"
+#        device_class: voltage
+#        state_class: measurement
+#        scan_interval: 120
+#
+#      - name: "Marstek Cell 9 Voltage"
+#        unique_id: marstek_cell_09_voltage
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 34026
+#        input_type: holding
+#        data_type: int16
+#        scale: 0.001
+#        precision: 3
+#        unit_of_measurement: "V"
+#        device_class: voltage
+#        state_class: measurement
+#        scan_interval: 120
+#
+#      - name: "Marstek Cell 10 Voltage"
+#        unique_id: marstek_cell_10_voltage
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 34027
+#        input_type: holding
+#        data_type: int16
+#        scale: 0.001
+#        precision: 3
+#        unit_of_measurement: "V"
+#        device_class: voltage
+#        state_class: measurement
+#        scan_interval: 120
+#
+#      - name: "Marstek Cell 11 Voltage"
+#        unique_id: marstek_cell_11_voltage
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 34028
+#        input_type: holding
+#        data_type: int16
+#        scale: 0.001
+#        precision: 3
+#        unit_of_measurement: "V"
+#        device_class: voltage
+#        state_class: measurement
+#        scan_interval: 120
+#
+#      - name: "Marstek Cell 12 Voltage"
+#        unique_id: marstek_cell_12_voltage
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 34029
+#        input_type: holding
+#        data_type: int16
+#        scale: 0.001
+#        precision: 3
+#        unit_of_measurement: "V"
+#        device_class: voltage
+#        state_class: measurement
+#        scan_interval: 120
+#
+#      - name: "Marstek Cell 13 Voltage"
+#        unique_id: marstek_cell_13_voltage
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 34030
+#        input_type: holding
+#        data_type: int16
+#        scale: 0.001
+#        precision: 3
+#        unit_of_measurement: "V"
+#        device_class: voltage
+#        state_class: measurement
+#        scan_interval: 120
+#
+#      - name: "Marstek Cell 14 Voltage"
+#        unique_id: marstek_cell_14_voltage
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 34031
+#        input_type: holding
+#        data_type: int16
+#        scale: 0.001
+#        precision: 3
+#        unit_of_measurement: "V"
+#        device_class: voltage
+#        state_class: measurement
+#        scan_interval: 120
+#
+#      - name: "Marstek Cell 15 Voltage"
+#        unique_id: marstek_cell_15_voltage
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 34032
+#        input_type: holding
+#        data_type: int16
+#        scale: 0.001
+#        precision: 3
+#        unit_of_measurement: "V"
+#        device_class: voltage
+#        state_class: measurement
+#        scan_interval: 120
+#
+#      - name: "Marstek Cell 16 Voltage"
+#        unique_id: marstek_cell_16_voltage
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 34033
+#        input_type: holding
+#        data_type: int16
+#        scale: 0.001
+#        precision: 3
+#        unit_of_measurement: "V"
+#        device_class: voltage
+#        state_class: measurement
+#        scan_interval: 120
+
+      # ── Firmware versions ──────────────────────────────────────────────────
+
+      - name: "Marstek Software Version"
+        unique_id: marstek_software_version
+        slave: 1
+        address: 31100
+        input_type: holding
+        data_type: uint16
+        scale: 0.01
+        precision: 2
+        scan_interval: 3600
+
+      - name: "Marstek EMS Version"
+        unique_id: marstek_ems_version
+        slave: 1
+        address: 31101
+        input_type: holding
+        data_type: uint16
+        scan_interval: 3600
+
+      - name: "Marstek BMS Version"
+        unique_id: marstek_bms_version
+        slave: 1
+        address: 31102
+        input_type: holding
+        data_type: uint16
+        scan_interval: 3600
+
+      # ── Control readback ───────────────────────────────────────────────────
+
+      - name: "Marstek Work Mode (raw)"
+        unique_id: marstek_work_mode_raw
+        slave: 1
+        address: 43000
+        input_type: holding
+        data_type: uint16
+        scan_interval: 30
+        # Values: 0=Manual, 1=Anti Feed-In, 2=Trade Mode
+
+      - name: "Marstek RS485 Control Mode (raw)"
+        unique_id: marstek_rs485_control_raw
+        slave: 1
+        address: 42000
+        input_type: holding
+        data_type: uint16
+        scan_interval: 15
+        # 21930 (0x55AA) = Active | 21947 (0x55BB) = Inactive | 0 = Inactive
+
+      - name: "Marstek Force Mode (raw)"
+        unique_id: marstek_force_mode_raw
+        slave: 1
+        address: 42010
+        input_type: holding
+        data_type: uint16
+        scan_interval: 10
+        # Values: 0=Stop, 1=Charge, 2=Discharge
+
+#      - name: "Marstek Charge Target SOC"
+#        unique_id: marstek_charge_target_soc_raw
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 42011
+#        input_type: holding
+#        data_type: uint16
+#        unit_of_measurement: "%"
+#        scan_interval: 30
+
+      - name: "Marstek Charge Power Setpoint"
+        unique_id: marstek_charge_power_set
+        slave: 1
+        address: 42020
+        input_type: holding
+        data_type: uint16
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        scan_interval: 15
+
+      - name: "Marstek Discharge Power Setpoint"
+        unique_id: marstek_discharge_power_set
+        slave: 1
+        address: 42021
+        input_type: holding
+        data_type: uint16
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        scan_interval: 15
+
+#      - name: "Marstek Charge Cutoff SOC"
+#        unique_id: marstek_charge_cutoff_soc_raw
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 44000
+#        input_type: holding
+#        data_type: uint16
+#        scale: 0.1
+#        precision: 0
+#        unit_of_measurement: "%"
+#        scan_interval: 60
+#
+#      - name: "Marstek Discharge Cutoff SOC"
+#        unique_id: marstek_discharge_cutoff_soc_raw
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 44001
+#        input_type: holding
+#        data_type: uint16
+#        scale: 0.1
+#        precision: 0
+#        unit_of_measurement: "%"
+#        scan_interval: 60
+#
+#      - name: "Marstek Max Charge Power Limit"
+#        unique_id: marstek_max_charge_power_raw
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 44002
+#        input_type: holding
+#        data_type: uint16
+#        unit_of_measurement: "W"
+#        device_class: power
+#        scan_interval: 60
+#
+#      - name: "Marstek Max Discharge Power Limit"
+#        unique_id: marstek_max_discharge_power_raw
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 44003
+#        input_type: holding
+#        data_type: uint16
+#        unit_of_measurement: "W"
+#        device_class: power
+#        scan_interval: 60
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # SWITCHES (read + write)
+    # ─────────────────────────────────────────────────────────────────────────
+    switches:
+
+      # RS485 remote control — REQUIRED for force charge/discharge
+      # NOTE: 21930 (0x55AA) = on, 21947 (0x55BB) = off
+      - name: "Marstek RS485 Control"
+        unique_id: marstek_rs485_control_switch
+        slave: 1
+        address: 42000
+        write_type: holding
+        command_on: 21930
+        command_off: 21947
+        scan_interval: 15
+
+#      # Backup mode (emergency power output)
+#      # NOTE: inverted logic — 0=on, 1=off
+#      - name: "Marstek Backup Mode"
+#        unique_id: marstek_backup_mode_switch
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 41200
+#        write_type: holding
+#        command_on: 0
+#        command_off: 1
+#        scan_interval: 60
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # NUMBERS — adjustable registers via UI
+    # ─────────────────────────────────────────────────────────────────────────
+    numbers:
+
+      # Force charge power (only active when RS485 control is ON)
+      - name: "Marstek Charge Power"
+        unique_id: marstek_charge_power_number
+        slave: 1
+        address: 42020
+        data_type: uint16
+        min_value: 0
+        max_value: 1200
+        step: 50
+        unit_of_measurement: "W"
+        write_type: holding
+        scan_interval: 15
+
+      # Force discharge power (only active when RS485 control is ON)
+      - name: "Marstek Discharge Power"
+        unique_id: marstek_discharge_power_number
+        slave: 1
+        address: 42021
+        data_type: uint16
+        min_value: 0
+        max_value: 1200
+        step: 50
+        unit_of_measurement: "W"
+        write_type: holding
+        scan_interval: 15
+
+#      # Charge to this SOC percentage (force charge stops here)
+#      - name: "Marstek Charge Target SOC"
+#        unique_id: marstek_charge_target_soc_number
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 42011
+#        data_type: uint16
+#        min_value: 10
+#        max_value: 100
+#        step: 5
+#        unit_of_measurement: "%"
+#        write_type: holding
+#        scan_interval: 30
+#
+#      # Maximum charge power limit (permanently configured)
+#      - name: "Marstek Max Charge Power"
+#        unique_id: marstek_max_charge_power_number
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 44002
+#        data_type: uint16
+#        min_value: 0
+#        max_value: 1200
+#        step: 50
+#        unit_of_measurement: "W"
+#        write_type: holding
+#        scan_interval: 60
+#
+#      # Maximum discharge power limit (permanently configured)
+#      - name: "Marstek Max Discharge Power"
+#        unique_id: marstek_max_discharge_power_number
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 44003
+#        data_type: uint16
+#        min_value: 0
+#        max_value: 1200
+#        step: 50
+#        unit_of_measurement: "W"
+#        write_type: holding
+#        scan_interval: 60
+#
+#      # Charge cutoff SOC — stop charging when this % is reached
+#      # Register value x0.1, so UI value * 10 = register value
+#      # HA writes the raw value; use 800 for 80%, 1000 for 100%
+#      - name: "Marstek Charge Cutoff SOC"
+#        unique_id: marstek_charge_cutoff_soc_number
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 44000
+#        data_type: uint16
+#        min_value: 800           # = 80%
+#        max_value: 1000          # = 100%
+#        step: 10                 # steps of 1%
+#        unit_of_measurement: "‰"  # raw value, see README
+#        write_type: holding
+#        scan_interval: 60
+#
+#      # Discharge cutoff SOC — stop discharging when this % is reached
+#      - name: "Marstek Discharge Cutoff SOC"
+#        unique_id: marstek_discharge_cutoff_soc_number
+#        device_info: *marstek_device
+#        slave: 1
+#        address: 44001
+#        data_type: uint16
+#        min_value: 120           # = 12%
+#        max_value: 300           # = 30%
+#        step: 10                 # steps of 1%
+#        unit_of_measurement: "‰"  # raw value, see README
+#        write_type: holding
+#        scan_interval: 60
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TEMPLATE SENSORS — user-friendly display
+# ─────────────────────────────────────────────────────────────────────────────
+template:
+  - sensor:
+      - name: "Marstek Status"
+        unique_id: marstek_inverter_state_text
+        state: >-
+          {% set s = states('sensor.marstek_inverter_state_raw') | int(-1) %}
+          {% set map = {
+            0: 'Sleep',
+            1: 'Standby',
+            2: 'Charging',
+            3: 'Discharging',
+            4: 'Backup Mode',
+            5: 'OTA Upgrade',
+            6: 'Bypass'
+          } %}
+          {{ map.get(s, 'Unknown') }}
+        icon: >-
+          {% set s = states('sensor.marstek_inverter_state_raw') | int(-1) %}
+          {% if s == 2 %} mdi:battery-charging
+          {% elif s == 3 %} mdi:battery-arrow-down
+          {% elif s == 4 %} mdi:home-battery
+          {% elif s == 0 %} mdi:sleep
+          {% else %} mdi:battery
+          {% endif %}
+
+      - name: "Marstek Work Mode"
+        unique_id: marstek_work_mode_text
+        state: >-
+          {% set m = states('sensor.marstek_work_mode_raw') | int(-1) %}
+          {% set map = {0: 'Manual', 1: 'Anti Feed-In', 2: 'Trade Mode'} %}
+          {{ map.get(m, 'Unknown') }}
+
+      - name: "Marstek Force Mode"
+        unique_id: marstek_force_mode_text
+        state: >-
+          {% set m = states('sensor.marstek_force_mode_raw') | int(-1) %}
+          {% set map = {0: 'Stopped', 1: 'Force Charge', 2: 'Force Discharge'} %}
+          {{ map.get(m, 'Unknown') }}
+        icon: >-
+          {% set m = states('sensor.marstek_force_mode_raw') | int(-1) %}
+          {% if m == 1 %} mdi:battery-charging-high
+          {% elif m == 2 %} mdi:battery-arrow-down-outline
+          {% else %} mdi:battery-sync
+          {% endif %}
+
+      - name: "Marstek RS485 Control Status"
+        unique_id: marstek_rs485_status_text
+        state: >-
+          {% set v = states('sensor.marstek_rs485_control_mode_raw') | int(0) %}
+          {% if v == 21930 %} Active (0x55AA)
+          {% else %} Inactive
+          {% endif %}
+        icon: >-
+          {% if states('sensor.marstek_rs485_control_mode_raw') | int(0) == 21930 %}
+            mdi:remote
+          {% else %}
+            mdi:remote-off
+          {% endif %}
+
+      - name: "Marstek Alarm Description"
+        unique_id: marstek_alarm_description
+        state: >-
+          {% set bits = states('sensor.marstek_alarm_status_bits') | int(0) %}
+          {% if bits == 0 %}
+            No alarms
+          {% else %}
+            {% set alarms = [] %}
+            {% if bits | bitwise_and(1) %} {% set alarms = alarms + ['PLL Restart'] %} {% endif %}
+            {% if bits | bitwise_and(2) %} {% set alarms = alarms + ['Overheating'] %} {% endif %}
+            {% if bits | bitwise_and(4) %} {% set alarms = alarms + ['Low Temperature'] %} {% endif %}
+            {% if bits | bitwise_and(8) %} {% set alarms = alarms + ['Fan Fault'] %} {% endif %}
+            {% if bits | bitwise_and(16) %} {% set alarms = alarms + ['Low SOC'] %} {% endif %}
+            {% if bits | bitwise_and(32) %} {% set alarms = alarms + ['Output Overcurrent'] %} {% endif %}
+            {% if bits | bitwise_and(64) %} {% set alarms = alarms + ['Line Sequence Fault'] %} {% endif %}
+            {% if bits | bitwise_and(128) %} {% set alarms = alarms + ['WiFi Abnormal'] %} {% endif %}
+            {% if bits | bitwise_and(256) %} {% set alarms = alarms + ['BLE Abnormal'] %} {% endif %}
+            {% if bits | bitwise_and(512) %} {% set alarms = alarms + ['Network Abnormal'] %} {% endif %}
+            {% if bits | bitwise_and(1024) %} {% set alarms = alarms + ['CT Connection Abnormal'] %} {% endif %}
+            {{ alarms | join(', ') }}
+          {% endif %}
+        icon: >-
+          {% if states('sensor.marstek_alarm_status_bits') | int(0) > 0 %}
+            mdi:alert-circle
+          {% else %}
+            mdi:check-circle
+          {% endif %}
+
+      - name: "Marstek Net Power"
+        unique_id: marstek_net_power
+        state: >-
+          {{ states('sensor.marstek_battery_power') | float(0) | round(0) }}
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        attributes:
+          charge_power: >-
+            {% set p = states('sensor.marstek_battery_power') | float(0) %}
+            {{ [p, 0] | max | round(0) }}
+          discharge_power: >-
+            {% set p = states('sensor.marstek_battery_power') | float(0) %}
+            {{ [(-p), 0] | max | round(0) }}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# INPUT HELPERS — UI for work mode and force mode
+# ─────────────────────────────────────────────────────────────────────────────
+input_select:
+  marstek_work_mode:
+    name: "Marstek Work Mode Setting"
+    options:
+      - "Manual"
+      - "Anti Feed-In"
+      - "Trade Mode"
+    initial: "Manual"
+    icon: mdi:battery-sync
+
+  marstek_force_mode:
+    name: "Marstek Force Mode"
+    options:
+      - "Automatic (stop forcing)"
+      - "Force Charge"
+      - "Force Discharge"
+    initial: "Automatic (stop forcing)"
+    icon: mdi:battery-charging
+
+input_number:
+  marstek_desired_charge_power:
+    name: "Marstek Desired Charge Power"
+    min: 0
+    max: 1200
+    step: 50
+    unit_of_measurement: "W"
+    icon: mdi:lightning-bolt
+
+  marstek_desired_discharge_power:
+    name: "Marstek Desired Discharge Power"
+    min: 0
+    max: 1200
+    step: 50
+    unit_of_measurement: "W"
+    icon: mdi:lightning-bolt-outline
+
+  marstek_charge_target_soc:
+    name: "Marstek Charge Target SOC"
+    min: 10
+    max: 100
+    step: 5
+    unit_of_measurement: "%"
+    icon: mdi:battery-charging-100
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SCRIPTS — reusable control actions
+# ─────────────────────────────────────────────────────────────────────────────
+script:
+
+  # ── Enable / disable RS485 control ────────────────────────────────────────
+
+  marstek_rs485_enable:
+    alias: "Marstek: Enable RS485 Control"
+    description: >
+      Enables RS485 remote control (writes 0x55AA to register 42000).
+      Required before force charge/discharge will work.
+    sequence:
+      - action: modbus.write_register
+        data:
+          hub: marstek_venus
+          slave: 1
+          address: 42000
+          value: 21930    # 0x55AA = enable
+      - delay:
+          milliseconds: 100
+
+  marstek_rs485_disable:
+    alias: "Marstek: Disable RS485 Control"
+    description: >
+      Disables RS485 remote control (writes 0x55BB to register 42000).
+      Battery returns to automatic mode.
+    sequence:
+      - action: modbus.write_register
+        data:
+          hub: marstek_venus
+          slave: 1
+          address: 42000
+          value: 21947    # 0x55BB = disable
+      - delay:
+          milliseconds: 100
+
+  # ── Force charge ───────────────────────────────────────────────────────────
+
+  marstek_force_charge:
+    alias: "Marstek: Force Charge"
+    description: >
+      Enables RS485, sets mode to charge, sets power.
+      Call via: script.marstek_force_charge (power and target_soc are optional)
+    fields:
+      power:
+        description: "Charge power in Watts (50–1200, default 1000)"
+        example: 1500
+        default: 1000
+        selector:
+          number:
+            min: 50
+            max: 1200
+            step: 50
+            unit_of_measurement: W
+      target_soc:
+        description: "Stop charging at this SOC% (10–100, default 80)"
+        example: 90
+        default: 80
+        selector:
+          number:
+            min: 10
+            max: 100
+            step: 5
+            unit_of_measurement: "%"
+    sequence:
+      - action: modbus.write_register
+        data:
+          hub: marstek_venus
+          slave: 1
+          address: 42000
+          value: 21930            # Enable RS485
+      - delay:
+          milliseconds: 100
+      - action: modbus.write_register
+        data:
+          hub: marstek_venus
+          slave: 1
+          address: 42011
+          value: "{{ target_soc | default(80) | int }}"
+      - delay:
+          milliseconds: 50
+      - action: modbus.write_register
+        data:
+          hub: marstek_venus
+          slave: 1
+          address: 42020
+          value: "{{ power | default(1000) | int }}"
+      - delay:
+          milliseconds: 50
+      - action: modbus.write_register
+        data:
+          hub: marstek_venus
+          slave: 1
+          address: 42010
+          value: 1                # Charge
+      - action: input_select.select_option
+        target:
+          entity_id: input_select.marstek_force_mode
+        data:
+          option: "Force Charge"
+
+  # ── Force discharge ────────────────────────────────────────────────────────
+
+  marstek_force_discharge:
+    alias: "Marstek: Force Discharge"
+    description: >
+      Enables RS485, sets mode to discharge, sets power.
+    fields:
+      power:
+        description: "Discharge power in Watts (50–1200, default 1000)"
+        example: 1500
+        default: 1000
+        selector:
+          number:
+            min: 50
+            max: 1200
+            step: 50
+            unit_of_measurement: W
+    sequence:
+      - action: modbus.write_register
+        data:
+          hub: marstek_venus
+          slave: 1
+          address: 42000
+          value: 21930            # Enable RS485
+      - delay:
+          milliseconds: 100
+      - action: modbus.write_register
+        data:
+          hub: marstek_venus
+          slave: 1
+          address: 42021
+          value: "{{ power | default(1000) | int }}"
+      - delay:
+          milliseconds: 50
+      - action: modbus.write_register
+        data:
+          hub: marstek_venus
+          slave: 1
+          address: 42010
+          value: 2                # Discharge
+      - action: input_select.select_option
+        target:
+          entity_id: input_select.marstek_force_mode
+        data:
+          option: "Force Discharge"
+
+  # ── Stop forcing — return to automatic ────────────────────────────────────
+
+  marstek_stop_forcing:
+    alias: "Marstek: Stop Forcing (Automatic)"
+    description: >
+      Sets force mode to Stop (register 42010 = 0).
+      Also disables RS485 control so battery operates fully automatically.
+    sequence:
+      - action: modbus.write_register
+        data:
+          hub: marstek_venus
+          slave: 1
+          address: 42010
+          value: 0                # Stop
+      - delay:
+          milliseconds: 100
+      - action: modbus.write_register
+        data:
+          hub: marstek_venus
+          slave: 1
+          address: 42000
+          value: 21947            # Disable RS485
+      - action: input_select.select_option
+        target:
+          entity_id: input_select.marstek_force_mode
+        data:
+          option: "Automatic (stop forcing)"
+
+  # ── Set work mode ──────────────────────────────────────────────────────────
+
+  marstek_set_work_mode:
+    alias: "Marstek: Set Work Mode"
+    description: >
+      Sets the work mode via register 43000.
+      0=Manual, 1=Anti Feed-In, 2=Trade Mode
+    fields:
+      mode:
+        description: "Mode (0=Manual, 1=Anti Feed-In, 2=Trade Mode)"
+        example: 1
+        default: 0
+        selector:
+          number:
+            min: 0
+            max: 2
+            step: 1
+    sequence:
+      - action: modbus.write_register
+        data:
+          hub: marstek_venus
+          slave: 1
+          address: 43000
+          value: "{{ mode | default(0) | int }}"
+
+  # ── Set power limits ───────────────────────────────────────────────────────
+
+  marstek_set_power_limits:
+    alias: "Marstek: Set Power Limits"
+    description: >
+      Sets permanent max charge and discharge power (registers 44002, 44003).
+    fields:
+      max_charge:
+        description: "Max charge power in Watts (0–1200)"
+        default: 1200
+      max_discharge:
+        description: "Max discharge power in Watts (0–1200)"
+        default: 1200
+    sequence:
+      - action: modbus.write_register
+        data:
+          hub: marstek_venus
+          slave: 1
+          address: 44002
+          value: "{{ max_charge | default(1200) | int }}"
+      - delay:
+          milliseconds: 50
+      - action: modbus.write_register
+        data:
+          hub: marstek_venus
+          slave: 1
+          address: 44003
+          value: "{{ max_discharge | default(1200) | int }}"
