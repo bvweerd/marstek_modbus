@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate changelog
+        id: changelog
+        uses: mikepenz/release-changelog-builder-action@v5
+        with:
+          configuration: |
+            {
+              "categories": [
+                { "title": "## ✨ Wijzigingen", "labels": ["enhancement", "bug"] },
+                { "title": "## 📚 Documentatie", "labels": ["documentation"] },
+                { "title": "## 🔧 Overig", "labels": [] }
+              ]
+            }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            marstek_venus_a.yaml
+            marstek_automations.yaml
+          body: |
+            ## Gebruik
+            Kopieer de YAML bestanden naar je Home Assistant configuratiemap en pas de entiteits-IDs aan naar jouw setup.
+
+            Zie de [README](https://github.com/${{ github.repository }}#readme) voor volledige documentatie.
+
+            ${{ steps.changelog.outputs.changelog }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
