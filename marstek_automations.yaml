@@ -742,24 +742,34 @@
 #                          │  MPPT automatisch│
 #                          └──────────────────┘
 #
+#     Drie scenario's en hoe ze worden afgehandeld:
+#
+#       1. Accu niet vol, zon > verbruik
+#            MPPT laadt accu  →  net ≈ 0 W  ✓
+#
+#       2. Accu VOL, zon > verbruik  ← het essentiële scenario
+#            Anti Feed-In (43000=1): Marstek regelt MPPT terug
+#            zodat productie = verbruik  →  net ≈ 0 W  ✓
+#            (zonder Anti Feed-In gaat overschot naar net)
+#
+#       3. Weinig/geen zon
+#            Net importeert voor huisverbruik.
+#            Accu blijft staan (44003 = 0 W).  ✓
+#
 #       Bij activering:
-#         1. Maximaal ontlaadvermogen → 0 W (register 44003)
-#            De accu ontlaadt niet, ook niet naar huisverbruik.
-#         2. Force Mode → Stop (register 42010 = 0)
-#            Geen geforceerde RS485-acties.
-#         3. MPPT laadt de accu automatisch vanuit de zon — geen extra
-#            RS485-commando's nodig.
+#         1. Force Mode → Stop (register 42010 = 0)
+#         2. Max ontlaadvermogen → 0 W (register 44003, EEPROM persistent)
+#            Accu ontlaadt nooit, ook niet naar huisverbruik.
+#         3. Work Mode → Anti Feed-In (register 43000 = 1)
+#            Marstek regelt MPPT terug bij vol accu + overschot.
 #
 #       Bij deactivering:
-#         - Maximaal ontlaadvermogen wordt hersteld (standaard 2500 W).
-#         - De Marstek keert terug naar normaal automatisch gedrag.
+#         - Work Mode → Manual (register 43000 = 0)
+#         - Max ontlaadvermogen hersteld naar 2500 W (register 44003)
 #
 #     LET OP:
-#       - Register 44003 schrijft naar EEPROM (persistente instelling).
-#         De waarde 0 W blijft ook na een herstart van de Marstek bewaard.
-#       - Automatatie #11 (Zero-Grid) en #13 mogen NIET tegelijk actief zijn.
-#       - Als de accu vol is (SOC ≥ 98%) en de zon blijft schijnen,
-#         gaat het overschot naar het net (tenzij Anti Feed-In actief is).
+#       - Register 44003 schrijft naar EEPROM (persistent na herstart Marstek).
+#       - Automatie #11 (Zero-Grid) en #13 mogen NIET tegelijk actief zijn.
 #
 #     Vereisten:
 #       - input_boolean.marstek_solar_capture_enabled
@@ -770,9 +780,15 @@
 - id: marstek_solar_capture_enable
   alias: "Marstek: Activeer Zonnepanelen Modus (DC, geen ontlading)"
   description: >
-    Stelt maximaal ontlaadvermogen in op 0 W (register 44003) en stopt
-    eventuele geforceerde modi. De MPPT laadt de accu automatisch vanuit zon.
-    Geschikt voor DC-gekoppelde zonnepanelen direct op de Marstek.
+    Volledige nul-op-de-meter zonder ontladen voor DC-gekoppelde zonnepanelen:
+      - Register 44003 = 0 W  → accu ontlaadt nooit (ook niet naar huisverbruik)
+      - Register 43000 = 1    → Anti Feed-In: Marstek regelt MPPT terug
+        wanneer accu vol is en zonne-overschot anders naar net zou gaan.
+      - Register 42010 = 0    → stop eventuele geforceerde modus.
+    Resultaat:
+      • Accu laadt via MPPT   → net ≈ 0 W  (accu niet vol)
+      • Accu vol + zon meer   → MPPT terugregelen → net ≈ 0 W
+      • Weinig/geen zon       → net importeert   (accu doet niets)
   trigger:
     - platform: state
       entity_id: input_boolean.marstek_solar_capture_enabled
@@ -796,30 +812,47 @@
         value: 0                # Stop forcing (geen charge/discharge)
     - delay:
         milliseconds: 100
-    # Stap 3: Maximaal ontlaadvermogen op 0 W zetten (EEPROM, persistent)
+    # Stap 3: Maximaal ontlaadvermogen op 0 W (EEPROM, persistent na herstart)
     - action: modbus.write_register
       data:
         hub: marstek_venus
         slave: 1
         address: 44003
         value: 0                # Max discharge power = 0 W — accu ontlaadt niet
+    - delay:
+        milliseconds: 100
+    # Stap 4: Anti Feed-In activeren — MPPT terugregelen bij volle accu + overschot
+    #         Zonder dit zou zonne-overschot naar het net gaan als de accu vol is.
+    - action: modbus.write_register
+      data:
+        hub: marstek_venus
+        slave: 1
+        address: 43000
+        value: 1                # Anti Feed-In mode — voorkomt export naar net
+    - action: input_select.select_option
+      target:
+        entity_id: input_select.marstek_work_mode
+      data:
+        option: "Anti Feed-In"
     - action: notify.persistent_notification
       data:
         title: "Marstek: Zonnepanelen Modus actief"
         message: >
-          Maximaal ontlaadvermogen ingesteld op 0 W.
-          De accu laadt automatisch via de MPPT (DC-zonnepanelen).
-          De accu ontlaadt niet — het net levert bij tekort.
+          Nul op de meter zonder ontladen is actief:
+          • Accu laadt automatisch via MPPT (DC-zonnepanelen).
+          • Anti Feed-In voorkomt export bij volle accu.
+          • Max ontlaadvermogen = 0 W (accu ontlaadt niet).
+          • Bij te weinig zon levert het net stroom.
         notification_id: marstek_solar_capture
   mode: single
 
 
-# Deactiveer Zonnepanelen Modus — herstel normaal ontlaadvermogen
+# Deactiveer Zonnepanelen Modus — herstel normaal ontlaadvermogen en work mode
 - id: marstek_solar_capture_disable
   alias: "Marstek: Deactiveer Zonnepanelen Modus"
   description: >
-    Herstelt het maximale ontlaadvermogen naar 2500 W (of pas aan naar wens).
-    De Marstek keert terug naar automatisch gedrag.
+    Herstelt het maximale ontlaadvermogen naar 2500 W en zet work mode
+    terug op Manual. De Marstek keert terug naar normaal automatisch gedrag.
   trigger:
     - platform: state
       entity_id: input_boolean.marstek_solar_capture_enabled
@@ -832,6 +865,20 @@
         slave: 1
         address: 42000
         value: 21930
+    - delay:
+        milliseconds: 100
+    # Work mode terugzetten naar Manual
+    - action: modbus.write_register
+      data:
+        hub: marstek_venus
+        slave: 1
+        address: 43000
+        value: 0                # Manual mode
+    - action: input_select.select_option
+      target:
+        entity_id: input_select.marstek_work_mode
+      data:
+        option: "Manual"
     - delay:
         milliseconds: 100
     # Maximaal ontlaadvermogen herstellen (EEPROM, persistent)
