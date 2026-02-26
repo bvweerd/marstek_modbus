@@ -726,139 +726,164 @@
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 13. ZONNEPANELEN MODUS — nul op de meter zonder ontladen (DC-gekoppeld)
+# 13. ZONNEPANELEN MODUS — nul op de meter, zelf gestuurd via CT-klem
 #
-#     Geschikt voor: zonnepanelen DIRECT op de Marstek (DC MPPT-ingang)
+#     Geschikt voor: DC-gekoppelde zonnepanelen direct op de Marstek MPPT-ingang
+#     Sturing:       Home Assistant (NIET de ingebouwde Anti Feed-In van Marstek)
 #
-#     Doel: Gebruik de accu uitsluitend om zonne-energie op te slaan.
-#           De accu ontlaadt NOOIT automatisch.
+#     Achtergrond — beschikbare Modbus-registers:
+#       Er is GEEN register voor een directe MPPT-vermogensinstelling.
+#       De enige HA-gestuurde manier om zonne-overschot te beheersen is via
+#       Force Charge (42010=1): Marstek absorbeert X watt vanuit de DC-bus
+#       (MPPT-zonnestroom heeft prioriteit boven het net).
 #
-#     Hoe het werkt (DC-koppeling):
-#       ┌──────────┐  DC   ┌──────────────────┐  AC  ┌──────────┐
-#       │  Zonne-  │──────▶│ Marstek Venus A  │─────▶│  Thuis   │
-#       │ panelen  │       │ (MPPT intern)    │      │  + Net   │
-#       └──────────┘       │                  │      └──────────┘
-#                          │  Accu laadt via  │
-#                          │  MPPT automatisch│
-#                          └──────────────────┘
+#     Hoe het werkt — regelkring (elke 5 seconden):
 #
-#     Drie scenario's en hoe ze worden afgehandeld:
+#       CT-klem lezing (sensor.marstek_grid_power):
+#         > +deadband  →  zon > verbruik (export)
+#                          Force Charge instellen op export-vermogen
+#                          Accu absorbeert het overschot via DC-bus (zonnestroom)
+#                          Net ≈ 0 W  ✓
 #
-#       1. Accu niet vol, zon > verbruik
-#            MPPT laadt accu  →  net ≈ 0 W  ✓
+#         < -deadband  →  zon < verbruik (import, wolken / nacht)
+#                          Stop forcing — accu doet niets
+#                          Net importeert voor het tekort  ✓
 #
-#       2. Accu VOL, zon > verbruik  ← het essentiële scenario
-#            Anti Feed-In (43000=1): Marstek regelt MPPT terug
-#            zodat productie = verbruik  →  net ≈ 0 W  ✓
-#            (zonder Anti Feed-In gaat overschot naar net)
+#         binnen ±deadband → niets doen
 #
-#       3. Weinig/geen zon
-#            Net importeert voor huisverbruik.
-#            Accu blijft staan (44003 = 0 W).  ✓
+#     Voorbeeld: verbruik 500 W, MPPT 600 W
+#       CT leest +100 W  →  Force Charge 100 W  →  CT = 0 W  ✓
+#       Zon achter wolken, MPPT 300 W  →  CT leest -200 W  →  stop  →  net -200 W  ✓
 #
-#       Bij activering:
-#         1. Force Mode → Stop (register 42010 = 0)
-#         2. Max ontlaadvermogen → 0 W (register 44003, EEPROM persistent)
-#            Accu ontlaadt nooit, ook niet naar huisverbruik.
-#         3. Work Mode → Anti Feed-In (register 43000 = 1)
-#            Marstek regelt MPPT terug bij vol accu + overschot.
+#     Beperking — accu vol + zonne-overschot:
+#       Als de accu vol is (SOC ≥ soc_max) en er is nog steeds overschot,
+#       gaat de zonne-energie naar het net. Er is geen Modbus-register om
+#       de MPPT direct terug te regelen zonder de Anti Feed-In firmware.
+#       Accepteer dit als trade-off van "zelf sturen zonder Anti Feed-In".
 #
-#       Bij deactivering:
-#         - Work Mode → Manual (register 43000 = 0)
-#         - Max ontlaadvermogen hersteld naar 2500 W (register 44003)
+#     Bij activering:
+#       1. RS485-besturing aan (42000 = 21930)
+#       2. Work Mode → Manual (43000 = 0): geen Marstek-firmware-sturing
+#       3. Max ontlaadvermogen → 0 W (44003 = 0, EEPROM persistent)
+#          Accu ontlaadt nooit, ook niet bij tekort.
 #
-#     LET OP:
-#       - Register 44003 schrijft naar EEPROM (persistent na herstart Marstek).
-#       - Automatie #11 (Zero-Grid) en #13 mogen NIET tegelijk actief zijn.
+#     Bij deactivering:
+#       1. Stop forcing (42010 = 0)
+#       2. Max ontlaadvermogen hersteld → 2500 W (44003 = 2500)
+#
+#     Instelbare parameters in de regelkring-automatie hieronder:
+#       deadband   50 W  — geen actie binnen ±50 W
+#       max_power  2500 W — maximaal laadvermogen
+#       min_power  50 W  — minimale vermogensstap
+#       soc_max    98 %  — stop laden boven dit SOC (accu vol)
 #
 #     Vereisten:
+#       - sensor.marstek_grid_power (CT-klem)
 #       - input_boolean.marstek_solar_capture_enabled
-#       - RS485-verbinding actief
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Activeer Zonnepanelen Modus (DC-gekoppeld, geen ontlading)
-- id: marstek_solar_capture_enable
-  alias: "Marstek: Activeer Zonnepanelen Modus (DC, geen ontlading)"
+# Regelkring — loopt elke 5 seconden
+- id: marstek_solar_capture_control
+  alias: "Marstek: Zonnepanelen Modus — regelkring (CT-gestuurd)"
   description: >
-    Volledige nul-op-de-meter zonder ontladen voor DC-gekoppelde zonnepanelen:
-      - Register 44003 = 0 W  → accu ontlaadt nooit (ook niet naar huisverbruik)
-      - Register 43000 = 1    → Anti Feed-In: Marstek regelt MPPT terug
-        wanneer accu vol is en zonne-overschot anders naar net zou gaan.
-      - Register 42010 = 0    → stop eventuele geforceerde modus.
-    Resultaat:
-      • Accu laadt via MPPT   → net ≈ 0 W  (accu niet vol)
-      • Accu vol + zon meer   → MPPT terugregelen → net ≈ 0 W
-      • Weinig/geen zon       → net importeert   (accu doet niets)
+    Leest de CT-klem elke 5 seconden. Bij zonne-overschot (export) wordt
+    Force Charge ingesteld zodat de accu het overschot absorbeert via de DC-bus.
+    Bij import stopt de sturing — de accu ontlaadt niet.
+  trigger:
+    - platform: time_pattern
+      seconds: "/5"
+  condition:
+    - condition: state
+      entity_id: input_boolean.marstek_solar_capture_enabled
+      state: "on"
+    - condition: not
+      conditions:
+        - condition: state
+          entity_id: sensor.marstek_grid_power
+          state: "unavailable"
+    - condition: not
+      conditions:
+        - condition: state
+          entity_id: sensor.marstek_battery_soc
+          state: "unavailable"
+  variables:
+    # ── Instelbare parameters ─────────────────────────────────────────────────
+    deadband:  50             # W — geen actie binnen ±50 W van nul
+    max_power: 2500           # W — maximaal laadvermogen
+    min_power: 50             # W — minimale vermogensstap
+    soc_max:   98             # % — stop laden boven dit SOC
+    # ── Metingen ─────────────────────────────────────────────────────────────
+    grid_power: "{{ states('sensor.marstek_grid_power') | float(0) | round(0) }}"
+    soc:        "{{ states('sensor.marstek_battery_soc') | float(0) }}"
+  action:
+    - choose:
+        # ── Binnen deadband: niets doen ────────────────────────────────────────
+        - conditions:
+            - condition: template
+              value_template: "{{ (grid_power | abs) < deadband }}"
+          sequence: []
+
+        # ── Export (zon > verbruik): absorb in accu via DC-bus ─────────────────
+        - conditions:
+            - condition: template
+              value_template: "{{ grid_power > deadband }}"
+            - condition: template
+              value_template: "{{ soc < soc_max }}"
+          sequence:
+            - variables:
+                charge_power: >-
+                  {{ [[grid_power | int, min_power] | max, max_power] | min }}
+            - action: modbus.write_register
+              data:
+                hub: marstek_venus
+                slave: 1
+                address: 42020
+                value: "{{ charge_power }}"   # Laadvermogen instellen
+            - action: modbus.write_register
+              data:
+                hub: marstek_venus
+                slave: 1
+                address: 42010
+                value: 1                       # Force Charge — bronprioriteit: DC-bus (zon)
+
+        # ── Import (zon < verbruik): stop — accu ontlaadt niet ─────────────────
+        - conditions:
+            - condition: template
+              value_template: "{{ grid_power < -deadband }}"
+          sequence:
+            - action: modbus.write_register
+              data:
+                hub: marstek_venus
+                slave: 1
+                address: 42010
+                value: 0                       # Stop forcing (geen ontlading)
+
+        # ── Accu vol: stop laden ────────────────────────────────────────────────
+        - conditions:
+            - condition: template
+              value_template: "{{ soc >= soc_max and grid_power > deadband }}"
+          sequence:
+            - action: modbus.write_register
+              data:
+                hub: marstek_venus
+                slave: 1
+                address: 42010
+                value: 0                       # Stop (overschot gaat nu naar net)
+  mode: single
+
+
+# Activeer Zonnepanelen Modus
+- id: marstek_solar_capture_enable
+  alias: "Marstek: Activeer Zonnepanelen Modus (CT-gestuurd, geen ontlading)"
+  description: >
+    Stelt de hardware-limieten in en activeert de CT-gestuurde regelkring.
+    Work Mode = Manual zodat de Marstek-firmware niet zelf ingrijpt.
   trigger:
     - platform: state
       entity_id: input_boolean.marstek_solar_capture_enabled
       to: "on"
   action:
-    # Stap 1: RS485-besturing activeren
-    - action: modbus.write_register
-      data:
-        hub: marstek_venus
-        slave: 1
-        address: 42000
-        value: 21930            # 0x55AA — RS485-besturing aan
-    - delay:
-        milliseconds: 100
-    # Stap 2: Eventuele force-modus stoppen
-    - action: modbus.write_register
-      data:
-        hub: marstek_venus
-        slave: 1
-        address: 42010
-        value: 0                # Stop forcing (geen charge/discharge)
-    - delay:
-        milliseconds: 100
-    # Stap 3: Maximaal ontlaadvermogen op 0 W (EEPROM, persistent na herstart)
-    - action: modbus.write_register
-      data:
-        hub: marstek_venus
-        slave: 1
-        address: 44003
-        value: 0                # Max discharge power = 0 W — accu ontlaadt niet
-    - delay:
-        milliseconds: 100
-    # Stap 4: Anti Feed-In activeren — MPPT terugregelen bij volle accu + overschot
-    #         Zonder dit zou zonne-overschot naar het net gaan als de accu vol is.
-    - action: modbus.write_register
-      data:
-        hub: marstek_venus
-        slave: 1
-        address: 43000
-        value: 1                # Anti Feed-In mode — voorkomt export naar net
-    - action: input_select.select_option
-      target:
-        entity_id: input_select.marstek_work_mode
-      data:
-        option: "Anti Feed-In"
-    - action: notify.persistent_notification
-      data:
-        title: "Marstek: Zonnepanelen Modus actief"
-        message: >
-          Nul op de meter zonder ontladen is actief:
-          • Accu laadt automatisch via MPPT (DC-zonnepanelen).
-          • Anti Feed-In voorkomt export bij volle accu.
-          • Max ontlaadvermogen = 0 W (accu ontlaadt niet).
-          • Bij te weinig zon levert het net stroom.
-        notification_id: marstek_solar_capture
-  mode: single
-
-
-# Deactiveer Zonnepanelen Modus — herstel normaal ontlaadvermogen en work mode
-- id: marstek_solar_capture_disable
-  alias: "Marstek: Deactiveer Zonnepanelen Modus"
-  description: >
-    Herstelt het maximale ontlaadvermogen naar 2500 W en zet work mode
-    terug op Manual. De Marstek keert terug naar normaal automatisch gedrag.
-  trigger:
-    - platform: state
-      entity_id: input_boolean.marstek_solar_capture_enabled
-      to: "off"
-  action:
-    # RS485-besturing activeren voor schrijven
+    # RS485-besturing aan
     - action: modbus.write_register
       data:
         hub: marstek_venus
@@ -867,13 +892,13 @@
         value: 21930
     - delay:
         milliseconds: 100
-    # Work mode terugzetten naar Manual
+    # Work Mode → Manual (geen Anti Feed-In firmware)
     - action: modbus.write_register
       data:
         hub: marstek_venus
         slave: 1
         address: 43000
-        value: 0                # Manual mode
+        value: 0
     - action: input_select.select_option
       target:
         entity_id: input_select.marstek_work_mode
@@ -881,13 +906,59 @@
         option: "Manual"
     - delay:
         milliseconds: 100
-    # Maximaal ontlaadvermogen herstellen (EEPROM, persistent)
+    # Force Mode → Stop
+    - action: modbus.write_register
+      data:
+        hub: marstek_venus
+        slave: 1
+        address: 42010
+        value: 0
+    - delay:
+        milliseconds: 100
+    # Max ontlaadvermogen → 0 W (EEPROM, persistent)
     - action: modbus.write_register
       data:
         hub: marstek_venus
         slave: 1
         address: 44003
-        value: 2500             # Herstel naar 2500 W — pas aan naar wens
+        value: 0
+    - action: notify.persistent_notification
+      data:
+        title: "Marstek: Zonnepanelen Modus actief"
+        message: >
+          CT-gestuurde zonne-nul-op-de-meter is actief (elke 5 s):
+          • Export → accu absorbeert overschot via DC-bus (zonnestroom).
+          • Import → accu stil, net compenseert tekort.
+          • Accu vol + overschot → overschot naar net (geen Anti Feed-In).
+          • Max ontlaadvermogen = 0 W (accu ontlaadt nooit).
+        notification_id: marstek_solar_capture
+  mode: single
+
+
+# Deactiveer Zonnepanelen Modus
+- id: marstek_solar_capture_disable
+  alias: "Marstek: Deactiveer Zonnepanelen Modus"
+  description: >
+    Stopt de CT-regelkring en herstelt de hardware-limieten.
+  trigger:
+    - platform: state
+      entity_id: input_boolean.marstek_solar_capture_enabled
+      to: "off"
+  action:
+    - action: modbus.write_register
+      data:
+        hub: marstek_venus
+        slave: 1
+        address: 42010
+        value: 0                # Stop forcing
+    - delay:
+        milliseconds: 100
+    - action: modbus.write_register
+      data:
+        hub: marstek_venus
+        slave: 1
+        address: 44003
+        value: 2500             # Herstel max ontlaadvermogen — pas aan naar wens
     - action: persistent_notification.dismiss
       data:
         notification_id: marstek_solar_capture
