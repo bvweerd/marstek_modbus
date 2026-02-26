@@ -726,8 +726,181 @@
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 13. ZONNE-OVERSCHOT OPSLAAN — nul op de meter zonder ontladen
+#
+#     Doel: Sla zonne-overschot op in de accu, maar ontlaad de accu NOOIT.
+#
+#     Gebruik dit als je met zonnepanelen zoveel mogelijk zelf wilt verbruiken
+#     zonder dat de accu automatisch wordt ingezet om import te compenseren.
+#
+#     Hoe het werkt:
+#       - Elke 10 seconden wordt het netvermogen gelezen (CT-klem).
+#       - Positief netvermogen = export naar net (zonne-overschot)
+#           → laad de accu met dat vermogen (tot max_power)
+#       - Negatief netvermogen = import van net (te weinig zon)
+#           → STOP het laden — ontlaad NIET
+#       - Binnen de deadband-grens: doe niets
+#
+#     Verschil met Zero-Grid Control (automatie #11):
+#       - Zero-Grid laadt bij export EN ontlaadt bij import
+#       - Deze automatie laadt bij export en STOPT bij import (geen ontlading)
+#
+#     Vereisten:
+#       - CT-klem correct aangesloten, sensor.marstek_grid_power werkt
+#       - input_boolean.marstek_solar_capture_enabled staat aan
+#       - input_boolean.marstek_zero_grid_enabled moet UIT zijn (conflicteert)
+#
+#     Instelbare parameters:
+#       - deadband:    50 W  — geen actie binnen ±50 W van nul
+#       - max_power:  2500 W — maximaal laadvermogen
+#       - min_power:    50 W — minimale stapgrootte
+#       - soc_max:      98 % — stop laden boven dit SOC-niveau
+# ─────────────────────────────────────────────────────────────────────────────
+- id: marstek_solar_capture_control
+  alias: "Marstek: Zonne-Overschot Opslaan (geen ontlading)"
+  description: >
+    Laadt de accu uitsluitend bij zonne-overschot (export naar net).
+    Bij import van het net stopt de sturing; de accu ontlaadt nooit.
+    In-/uitschakelen via input_boolean.marstek_solar_capture_enabled.
+  trigger:
+    - platform: time_pattern
+      seconds: "/10"
+  condition:
+    - condition: state
+      entity_id: input_boolean.marstek_solar_capture_enabled
+      state: "on"
+    - condition: not
+      conditions:
+        - condition: state
+          entity_id: sensor.marstek_battery_soc
+          state: "unavailable"
+    - condition: not
+      conditions:
+        - condition: state
+          entity_id: sensor.marstek_grid_power
+          state: "unavailable"
+  variables:
+    # ── Instelbare parameters ─────────────────────────────────────────────
+    deadband: 50              # Tolerantie in W — geen actie binnen ±50 W
+    max_power: 2500           # Maximaal laadvermogen in W
+    min_power: 50             # Minimale vermogensstap in W
+    soc_max: 98               # Stop laden boven dit SOC-percentage
+    # ── Actuele metingen ──────────────────────────────────────────────────
+    grid_power: "{{ states('sensor.marstek_grid_power') | float(0) | round(0) }}"
+    soc: "{{ states('sensor.marstek_battery_soc') | float(0) }}"
+    force_mode: "{{ states('sensor.marstek_force_mode_raw') | int(0) }}"
+  action:
+    - choose:
+        # ── Binnen deadband: niets doen ───────────────────────────────────
+        - conditions:
+            - condition: template
+              value_template: >-
+                {{ (grid_power | float) | abs < deadband }}
+          sequence: []
+
+        # ── Zonne-overschot (export): laad de accu ────────────────────────
+        - conditions:
+            - condition: template
+              value_template: "{{ grid_power > deadband }}"
+            - condition: template
+              value_template: "{{ soc < soc_max }}"
+          sequence:
+            - variables:
+                charge_power: >-
+                  {{ [[grid_power | int, min_power] | max, max_power] | min }}
+            - action: modbus.write_register
+              data:
+                hub: marstek_venus
+                slave: 1
+                address: 42000
+                value: 21930        # RS485-besturing activeren
+            - delay:
+                milliseconds: 50
+            - action: modbus.write_register
+              data:
+                hub: marstek_venus
+                slave: 1
+                address: 42020
+                value: "{{ charge_power }}"
+            - action: modbus.write_register
+              data:
+                hub: marstek_venus
+                slave: 1
+                address: 42010
+                value: 1            # Force charge
+
+        # ── Import van net: STOP laden — ontlaad NIET ─────────────────────
+        - conditions:
+            - condition: template
+              value_template: "{{ grid_power < -deadband }}"
+          sequence:
+            - action: modbus.write_register
+              data:
+                hub: marstek_venus
+                slave: 1
+                address: 42010
+                value: 0            # Stop forcing (geen ontlading)
+
+        # ── Accu vol (SOC >= soc_max): stop laden ─────────────────────────
+        - conditions:
+            - condition: template
+              value_template: "{{ soc >= soc_max }}"
+          sequence:
+            - action: modbus.write_register
+              data:
+                hub: marstek_venus
+                slave: 1
+                address: 42010
+                value: 0            # Stop forcing
+  mode: single
+
+
+# Activeer Zonne-Overschot Opslaan
+- id: marstek_solar_capture_enable
+  alias: "Marstek: Activeer Zonne-Overschot Opslaan"
+  description: >
+    Start de zonne-overschot-modus. De accu laadt bij export, ontlaadt nooit.
+  trigger:
+    - platform: state
+      entity_id: input_boolean.marstek_solar_capture_enabled
+      to: "on"
+  action:
+    - action: modbus.write_register
+      data:
+        hub: marstek_venus
+        slave: 1
+        address: 42000
+        value: 21930            # RS485-besturing activeren
+    - action: notify.persistent_notification
+      data:
+        title: "Marstek: Zonne-Overschot Opslaan actief"
+        message: >
+          Accu laadt alleen bij zonne-overschot (grid export).
+          Bij import van het net stopt de sturing — de accu ontlaadt niet.
+        notification_id: marstek_solar_capture
+  mode: single
+
+
+# Deactiveer Zonne-Overschot Opslaan
+- id: marstek_solar_capture_disable
+  alias: "Marstek: Deactiveer Zonne-Overschot Opslaan"
+  description: >
+    Stopt de zonne-overschot-modus en zet de accu terug op automatisch.
+  trigger:
+    - platform: state
+      entity_id: input_boolean.marstek_solar_capture_enabled
+      to: "off"
+  action:
+    - action: script.marstek_stop_forcing
+    - action: persistent_notification.dismiss
+      data:
+        notification_id: marstek_solar_capture
+  mode: single
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # REQUIRED INPUT BOOLEAN HELPERS
-# Add these to marstek_venus_a.yaml or a separate input_boolean.yaml:
+# These are now defined in marstek_venus_a.yaml (input_boolean section).
 #
 # input_boolean:
 #   marstek_anti_feedin_enabled:
@@ -737,4 +910,8 @@
 #   marstek_zero_grid_enabled:
 #     name: "Marstek Zero-Grid Control"
 #     icon: mdi:home-lightning-bolt
+#
+#   marstek_solar_capture_enabled:
+#     name: "Marstek Zonne-Overschot Opslaan"
+#     icon: mdi:solar-power
 # ─────────────────────────────────────────────────────────────────────────────

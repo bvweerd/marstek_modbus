@@ -1094,6 +1094,27 @@ input_number:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# INPUT BOOLEANS — on/off toggles for control modes
+# ─────────────────────────────────────────────────────────────────────────────
+input_boolean:
+
+  marstek_anti_feedin_enabled:
+    name: "Marstek Anti Feed-In Enable"
+    icon: mdi:transmission-tower-off
+
+  marstek_zero_grid_enabled:
+    name: "Marstek Zero-Grid Control"
+    icon: mdi:home-lightning-bolt
+
+  # Nul op de meter zonder ontladen:
+  # Laadt de accu uitsluitend bij zonne-overschot (export naar net).
+  # Bij import van het net stopt de sturing — de accu ontlaadt NIET.
+  marstek_solar_capture_enabled:
+    name: "Marstek Zonne-Overschot Opslaan"
+    icon: mdi:solar-power
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # SCRIPTS — reusable control actions
 # ─────────────────────────────────────────────────────────────────────────────
 script:
