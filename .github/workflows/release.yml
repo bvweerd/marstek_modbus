@@ -21,9 +21,9 @@ jobs:
           configuration: |
             {
               "categories": [
-                { "title": "## ✨ Wijzigingen", "labels": ["enhancement", "bug"] },
-                { "title": "## 📚 Documentatie", "labels": ["documentation"] },
-                { "title": "## 🔧 Overig", "labels": [] }
+                { "title": "## ✨ Changes", "labels": ["enhancement", "bug"] },
+                { "title": "## 📚 Documentation", "labels": ["documentation"] },
+                { "title": "## 🔧 Other", "labels": [] }
               ]
             }
         env:
@@ -36,8 +36,8 @@ jobs:
             marstek_venus_a.yaml
             marstek_automations.yaml
           body: |
-            ## Gebruik
-            Kopieer de YAML bestanden naar je Home Assistant configuratiemap en pas de entiteits-IDs aan naar jouw setup.
+            ## Usage
+            Copy the YAML files to your Home Assistant configuration directory and adjust the entity IDs to match your setup.
 
             Zie de [README](https://github.com/${{ github.repository }}#readme) voor volledige documentatie.
 
