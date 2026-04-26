@@ -1,0 +1,148 @@
+################################################################################
+# Marstek Venus A — Efficiency Buckets Template Sensors
+#
+# Compiles all pyscript bucket efficiency entities into two template sensors
+# with list attributes, ready for use in the ApexCharts Lovelace card.
+#
+# Requires: pyscript/marstek_efficiency_buckets.py must be active.
+#
+# Installation:
+#   Add to configuration.yaml under packages:
+#     marstek_chart: !include packages/marstek_efficiency_template.yaml
+################################################################################
+
+template:
+  - sensor:
+      - name: "Marstek Charge Efficiency Buckets"
+        unique_id: marstek_charge_efficiency_buckets
+        icon: mdi:battery-charging
+        state: "ok"
+        attributes:
+          # Each attribute is a single Jinja2 expression returning a list.
+          # Index 0 = 100-199 W, index 1 = 200-299 W, ..., index 11 = ≥1200 W
+          efficiency_pct: >-
+            {{ [
+              states('pyscript.marstek_efficiency_charge_0100_0199w_pct') | float(0) | round(1),
+              states('pyscript.marstek_efficiency_charge_0200_0299w_pct') | float(0) | round(1),
+              states('pyscript.marstek_efficiency_charge_0300_0399w_pct') | float(0) | round(1),
+              states('pyscript.marstek_efficiency_charge_0400_0499w_pct') | float(0) | round(1),
+              states('pyscript.marstek_efficiency_charge_0500_0599w_pct') | float(0) | round(1),
+              states('pyscript.marstek_efficiency_charge_0600_0699w_pct') | float(0) | round(1),
+              states('pyscript.marstek_efficiency_charge_0700_0799w_pct') | float(0) | round(1),
+              states('pyscript.marstek_efficiency_charge_0800_0899w_pct') | float(0) | round(1),
+              states('pyscript.marstek_efficiency_charge_0900_0999w_pct') | float(0) | round(1),
+              states('pyscript.marstek_efficiency_charge_1000_1099w_pct') | float(0) | round(1),
+              states('pyscript.marstek_efficiency_charge_1100_1199w_pct') | float(0) | round(1),
+              states('pyscript.marstek_efficiency_charge_1200w_pct')       | float(0) | round(1)
+            ] }}
+          samples: >-
+            {{ [
+              state_attr('pyscript.marstek_efficiency_charge_0100_0199w_pct', 'samples') | int(0),
+              state_attr('pyscript.marstek_efficiency_charge_0200_0299w_pct', 'samples') | int(0),
+              state_attr('pyscript.marstek_efficiency_charge_0300_0399w_pct', 'samples') | int(0),
+              state_attr('pyscript.marstek_efficiency_charge_0400_0499w_pct', 'samples') | int(0),
+              state_attr('pyscript.marstek_efficiency_charge_0500_0599w_pct', 'samples') | int(0),
+              state_attr('pyscript.marstek_efficiency_charge_0600_0699w_pct', 'samples') | int(0),
+              state_attr('pyscript.marstek_efficiency_charge_0700_0799w_pct', 'samples') | int(0),
+              state_attr('pyscript.marstek_efficiency_charge_0800_0899w_pct', 'samples') | int(0),
+              state_attr('pyscript.marstek_efficiency_charge_0900_0999w_pct', 'samples') | int(0),
+              state_attr('pyscript.marstek_efficiency_charge_1000_1099w_pct', 'samples') | int(0),
+              state_attr('pyscript.marstek_efficiency_charge_1100_1199w_pct', 'samples') | int(0),
+              state_attr('pyscript.marstek_efficiency_charge_1200w_pct',       'samples') | int(0)
+            ] }}
+          input_kwh: >-
+            {{ [
+              state_attr('pyscript.marstek_efficiency_charge_0100_0199w_pct', 'input_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_charge_0200_0299w_pct', 'input_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_charge_0300_0399w_pct', 'input_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_charge_0400_0499w_pct', 'input_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_charge_0500_0599w_pct', 'input_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_charge_0600_0699w_pct', 'input_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_charge_0700_0799w_pct', 'input_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_charge_0800_0899w_pct', 'input_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_charge_0900_0999w_pct', 'input_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_charge_1000_1099w_pct', 'input_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_charge_1100_1199w_pct', 'input_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_charge_1200w_pct',       'input_kwh') | float(0) | round(3)
+            ] }}
+          output_kwh: >-
+            {{ [
+              state_attr('pyscript.marstek_efficiency_charge_0100_0199w_pct', 'output_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_charge_0200_0299w_pct', 'output_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_charge_0300_0399w_pct', 'output_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_charge_0400_0499w_pct', 'output_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_charge_0500_0599w_pct', 'output_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_charge_0600_0699w_pct', 'output_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_charge_0700_0799w_pct', 'output_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_charge_0800_0899w_pct', 'output_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_charge_0900_0999w_pct', 'output_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_charge_1000_1099w_pct', 'output_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_charge_1100_1199w_pct', 'output_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_charge_1200w_pct',       'output_kwh') | float(0) | round(3)
+            ] }}
+
+      - name: "Marstek Discharge Efficiency Buckets"
+        unique_id: marstek_discharge_efficiency_buckets
+        icon: mdi:battery-arrow-down
+        state: "ok"
+        attributes:
+          efficiency_pct: >-
+            {{ [
+              states('pyscript.marstek_efficiency_discharge_0100_0199w_pct') | float(0) | round(1),
+              states('pyscript.marstek_efficiency_discharge_0200_0299w_pct') | float(0) | round(1),
+              states('pyscript.marstek_efficiency_discharge_0300_0399w_pct') | float(0) | round(1),
+              states('pyscript.marstek_efficiency_discharge_0400_0499w_pct') | float(0) | round(1),
+              states('pyscript.marstek_efficiency_discharge_0500_0599w_pct') | float(0) | round(1),
+              states('pyscript.marstek_efficiency_discharge_0600_0699w_pct') | float(0) | round(1),
+              states('pyscript.marstek_efficiency_discharge_0700_0799w_pct') | float(0) | round(1),
+              states('pyscript.marstek_efficiency_discharge_0800_0899w_pct') | float(0) | round(1),
+              states('pyscript.marstek_efficiency_discharge_0900_0999w_pct') | float(0) | round(1),
+              states('pyscript.marstek_efficiency_discharge_1000_1099w_pct') | float(0) | round(1),
+              states('pyscript.marstek_efficiency_discharge_1100_1199w_pct') | float(0) | round(1),
+              states('pyscript.marstek_efficiency_discharge_1200w_pct')       | float(0) | round(1)
+            ] }}
+          samples: >-
+            {{ [
+              state_attr('pyscript.marstek_efficiency_discharge_0100_0199w_pct', 'samples') | int(0),
+              state_attr('pyscript.marstek_efficiency_discharge_0200_0299w_pct', 'samples') | int(0),
+              state_attr('pyscript.marstek_efficiency_discharge_0300_0399w_pct', 'samples') | int(0),
+              state_attr('pyscript.marstek_efficiency_discharge_0400_0499w_pct', 'samples') | int(0),
+              state_attr('pyscript.marstek_efficiency_discharge_0500_0599w_pct', 'samples') | int(0),
+              state_attr('pyscript.marstek_efficiency_discharge_0600_0699w_pct', 'samples') | int(0),
+              state_attr('pyscript.marstek_efficiency_discharge_0700_0799w_pct', 'samples') | int(0),
+              state_attr('pyscript.marstek_efficiency_discharge_0800_0899w_pct', 'samples') | int(0),
+              state_attr('pyscript.marstek_efficiency_discharge_0900_0999w_pct', 'samples') | int(0),
+              state_attr('pyscript.marstek_efficiency_discharge_1000_1099w_pct', 'samples') | int(0),
+              state_attr('pyscript.marstek_efficiency_discharge_1100_1199w_pct', 'samples') | int(0),
+              state_attr('pyscript.marstek_efficiency_discharge_1200w_pct',       'samples') | int(0)
+            ] }}
+          input_kwh: >-
+            {{ [
+              state_attr('pyscript.marstek_efficiency_discharge_0100_0199w_pct', 'input_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_discharge_0200_0299w_pct', 'input_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_discharge_0300_0399w_pct', 'input_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_discharge_0400_0499w_pct', 'input_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_discharge_0500_0599w_pct', 'input_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_discharge_0600_0699w_pct', 'input_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_discharge_0700_0799w_pct', 'input_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_discharge_0800_0899w_pct', 'input_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_discharge_0900_0999w_pct', 'input_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_discharge_1000_1099w_pct', 'input_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_discharge_1100_1199w_pct', 'input_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_discharge_1200w_pct',       'input_kwh') | float(0) | round(3)
+            ] }}
+          output_kwh: >-
+            {{ [
+              state_attr('pyscript.marstek_efficiency_discharge_0100_0199w_pct', 'output_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_discharge_0200_0299w_pct', 'output_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_discharge_0300_0399w_pct', 'output_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_discharge_0400_0499w_pct', 'output_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_discharge_0500_0599w_pct', 'output_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_discharge_0600_0699w_pct', 'output_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_discharge_0700_0799w_pct', 'output_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_discharge_0800_0899w_pct', 'output_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_discharge_0900_0999w_pct', 'output_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_discharge_1000_1099w_pct', 'output_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_discharge_1100_1199w_pct', 'output_kwh') | float(0) | round(3),
+              state_attr('pyscript.marstek_efficiency_discharge_1200w_pct',       'output_kwh') | float(0) | round(3)
+            ] }}

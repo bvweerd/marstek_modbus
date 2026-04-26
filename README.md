@@ -23,6 +23,7 @@ Firmware >= 147 | Hardware: V1/V2 (RS485 adapter required) | Protocol: Modbus RT
 |------|----------|
 | `marstek_venus_a.yaml` | Main package: modbus hub, sensors, switches, numbers, template sensors, input helpers, scripts |
 | `marstek_automations.yaml` | Automations for charge/discharge by time, price, SOC, zero-grid |
+| `pyscript/marstek_efficiency_buckets.py` | Pyscript that calculates charge/discharge efficiency per 100 W bucket using grid power + energy counters |
 | `README.md` | This file |
 
 ---
@@ -161,6 +162,75 @@ input_boolean:
 **Step 5: Restart Home Assistant**
 
 After restart all entities appear under the `marstek_venus` hub.
+
+---
+
+## Pyscript: Efficiency Per 100 W Bucket
+
+If `sensor.marstek_battery_power` is not available, you can still estimate charging and discharging efficiency per power bucket by combining:
+
+- `sensor.marstek_grid_power` for bucket selection and AC-side energy
+- `sensor.marstek_total_energy_charged` for charged battery energy
+- `sensor.marstek_total_energy_discharged` for discharged battery energy
+
+The included Pyscript file is:
+
+```text
+pyscript/marstek_efficiency_buckets.py
+```
+
+### What it does
+
+- Samples every 60 seconds
+- Groups data into 100 W buckets
+- Tracks buckets from `0 W` up to `1200 W`
+- Uses the cumulative energy counters as the energy truth source
+- Publishes persistent `pyscript.*` entities with running totals and efficiency
+
+### Resulting entity pattern
+
+For each bucket you get four entities for charging and four for discharging:
+
+```text
+pyscript.marstek_efficiency_charge_0300_0399w_input_kwh
+pyscript.marstek_efficiency_charge_0300_0399w_output_kwh
+pyscript.marstek_efficiency_charge_0300_0399w_pct
+pyscript.marstek_efficiency_charge_0300_0399w_samples
+
+pyscript.marstek_efficiency_discharge_0300_0399w_input_kwh
+pyscript.marstek_efficiency_discharge_0300_0399w_output_kwh
+pyscript.marstek_efficiency_discharge_0300_0399w_pct
+pyscript.marstek_efficiency_discharge_0300_0399w_samples
+```
+
+Charging efficiency is accumulated as:
+
+```text
+efficiency = delta(total_energy_charged) / estimated_ac_import_energy
+```
+
+Discharging efficiency is accumulated as:
+
+```text
+efficiency = estimated_ac_export_energy / delta(total_energy_discharged)
+```
+
+### Install
+
+1. Install the Home Assistant `pyscript` integration if you do not already use it.
+2. Copy `pyscript/marstek_efficiency_buckets.py` to your HA config directory under `config/pyscript/`.
+3. Reload Pyscript or restart Home Assistant.
+4. Wait for enough runtime per bucket so the 0.01 kWh energy counters have moved.
+
+### Reset service
+
+The script also exposes a reset service:
+
+```text
+pyscript.marstek_efficiency_reset
+```
+
+This clears all accumulated bucket totals and restarts the sampler state.
 
 ---
 

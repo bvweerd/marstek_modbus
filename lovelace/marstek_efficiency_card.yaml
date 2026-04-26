@@ -1,0 +1,121 @@
+################################################################################
+# Marstek Venus A — Efficiency Buckets ApexCharts Card
+#
+# Requirements:
+#   - apexcharts-card (HACS): https://github.com/RomRider/apexcharts-card
+#
+# Usage:
+#   In Lovelace dashboard → Edit → Add Card → Manual card
+#   Paste the YAML below (without these comment lines if desired)
+################################################################################
+
+type: custom:apexcharts-card
+graph_span: 2h
+
+header:
+  show: true
+  title: Marstek — Efficiëntie per Vermogensbucket
+
+all_series_config:
+  type: column
+  group_by:
+    func: last
+    duration: 2h
+  show:
+    legend_value: false
+    in_header: false
+
+apex_config:
+  chart:
+    height: 320
+  plotOptions:
+    bar:
+      columnWidth: 80%
+      borderRadius: 3
+  dataLabels:
+    enabled: false
+  yaxis:
+    min: 0
+    max: 100
+    title:
+      text: "Efficiëntie (%)"
+  xaxis:
+    labels:
+      show: false
+
+series:
+  # ── Laden (blauw) ──────────────────────────────────────────────────────────
+  - entity: pyscript.marstek_efficiency_charge_0100_0199w_pct
+    name: "Laden 100W"
+    color: "#1565C0"
+  - entity: pyscript.marstek_efficiency_charge_0200_0299w_pct
+    name: "Laden 200W"
+    color: "#1976D2"
+  - entity: pyscript.marstek_efficiency_charge_0300_0399w_pct
+    name: "Laden 300W"
+    color: "#1E88E5"
+  - entity: pyscript.marstek_efficiency_charge_0400_0499w_pct
+    name: "Laden 400W"
+    color: "#2196F3"
+  - entity: pyscript.marstek_efficiency_charge_0500_0599w_pct
+    name: "Laden 500W"
+    color: "#42A5F5"
+  - entity: pyscript.marstek_efficiency_charge_0600_0699w_pct
+    name: "Laden 600W"
+    color: "#64B5F6"
+  - entity: pyscript.marstek_efficiency_charge_0700_0799w_pct
+    name: "Laden 700W"
+    color: "#90CAF9"
+  - entity: pyscript.marstek_efficiency_charge_0800_0899w_pct
+    name: "Laden 800W"
+    color: "#BBDEFB"
+  - entity: pyscript.marstek_efficiency_charge_0900_0999w_pct
+    name: "Laden 900W"
+    color: "#E3F2FD"
+  - entity: pyscript.marstek_efficiency_charge_1000_1099w_pct
+    name: "Laden 1000W"
+    color: "#B3E5FC"
+  - entity: pyscript.marstek_efficiency_charge_1100_1199w_pct
+    name: "Laden 1100W"
+    color: "#81D4FA"
+  - entity: pyscript.marstek_efficiency_charge_1200w_pct
+    name: "Laden 1200W"
+    color: "#4FC3F7"
+
+  # ── Ontladen (oranje) ──────────────────────────────────────────────────────
+  - entity: pyscript.marstek_efficiency_discharge_0100_0199w_pct
+    name: "Ontladen 100W"
+    color: "#BF360C"
+  - entity: pyscript.marstek_efficiency_discharge_0200_0299w_pct
+    name: "Ontladen 200W"
+    color: "#D84315"
+  - entity: pyscript.marstek_efficiency_discharge_0300_0399w_pct
+    name: "Ontladen 300W"
+    color: "#E64A19"
+  - entity: pyscript.marstek_efficiency_discharge_0400_0499w_pct
+    name: "Ontladen 400W"
+    color: "#F4511E"
+  - entity: pyscript.marstek_efficiency_discharge_0500_0599w_pct
+    name: "Ontladen 500W"
+    color: "#FF5722"
+  - entity: pyscript.marstek_efficiency_discharge_0600_0699w_pct
+    name: "Ontladen 600W"
+    color: "#FF7043"
+  - entity: pyscript.marstek_efficiency_discharge_0700_0799w_pct
+    name: "Ontladen 700W"
+    color: "#FF8A65"
+  - entity: pyscript.marstek_efficiency_discharge_0800_0899w_pct
+    name: "Ontladen 800W"
+    color: "#FFAB91"
+  - entity: pyscript.marstek_efficiency_discharge_0900_0999w_pct
+    name: "Ontladen 900W"
+    color: "#FFCCBC"
+  - entity: pyscript.marstek_efficiency_discharge_1000_1099w_pct
+    name: "Ontladen 1000W"
+    color: "#FBE9E7"
+  - entity: pyscript.marstek_efficiency_discharge_1100_1199w_pct
+    name: "Ontladen 1100W"
+    color: "#FFD54F"
+  - entity: pyscript.marstek_efficiency_discharge_1200w_pct
+    name: "Ontladen 1200W"
+    color: "#FFB300"
